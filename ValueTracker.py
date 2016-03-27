@@ -162,12 +162,13 @@ class Application(tk.Frame):
         try:
             tmp = self.matches.get_nowait()
             tmp = cumsum(tmp)
+            print(tmp)
             self.axis.clear()
             self.axis.plot(tmp, 'ko-')
             self.canvas.show()
             self.after(2000, self.update_plots)
         except queue.Empty:
-            pass
+            self.after(2000, self.update_plots)
 
 root = tk.Tk()
 root.title('ValueTracker')

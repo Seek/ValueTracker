@@ -248,6 +248,7 @@ class StatCollector():
         arr = []
         for obj in result:
             arr.append(obj[0])
+        print(arr)
         self.plot_data.put(arr)
         self.db.close()
 
