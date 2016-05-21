@@ -7,6 +7,10 @@ import configparser
 #Functional imports
 import ssl
 import urllib.request
+import sqlite3
+
+#Local code
+import hs
 
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
@@ -26,10 +30,12 @@ class Application(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         #Initialize the gui
+        self._init_database()
         self._create_widgets()
         self._create_menu()
         
     def on_close(self):
+        self.db.close()
         self.master.destroy()
 
     def _create_widgets(self):
@@ -72,6 +78,7 @@ class Application(ttk.Frame):
         self._debug_frame.rowconfigure(0, weight=1)
         #Create each interface
         self._create_debug_frame()
+        self._create_card_stats_frame()
         
     def _create_debug_frame(self):
         pw = ttk.PanedWindow(self._debug_frame, orient=tk.HORIZONTAL)
@@ -86,6 +93,14 @@ class Application(ttk.Frame):
         self._debug_text.pack(fill=tk.BOTH, expand=1)
         pw.add(f1)
         pw.add(f2)
+        
+    def _create_card_stats_frame(self):
+        self._card_stats_entry = hs.AutocompleteCardEntry(self._card_stats_frame,
+        self.db.cursor())
+        self._card_stats_entry.grid(column=0, row=0, sticky=(tk.N,tk.W))
+    
+    def _init_database(self):
+        self.db = sqlite3.connect('stats.db')
     
 root = tk.Tk()
 root.title('ValueTracker')
