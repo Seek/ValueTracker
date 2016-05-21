@@ -2,8 +2,5 @@
 
 This application is designed to accomplish one major goal, collect granular statistics about a player's games in Hearthstone.
 
-I have a lot of work to do, and this application is currently undergoing a major revision.
-A large issue with tracking statistics in Hearthstone has to do with parsing the log and sending that information
-to the GUI. This is due to the "creative" way we must parse the log file. (Hearthstone does not write the log until the game closes,
-this means that we must constantly open and reopen the file in order to recieve new information).
+I have a lot of work to do, and this application is currently undergoing a major revision. A large issue with tracking statistics in Hearthstone has to do with parsing the log and sending that information to the GUI. This is due to the "creative" way we must parse the log file. (Hearthstone does not write the log until the game closes, this means that we must constantly open and reopen the file in order to recieve new information).
     
