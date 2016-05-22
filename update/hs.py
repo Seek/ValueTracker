@@ -147,10 +147,10 @@ def thread_func(*args):
 # Who the foreign player is
 # when a card is played, what turn it was played, and who played it
 # when the game ends and the outcome (including relevant statistics)
-Player = namedtuple('Player', ['name', 'id','high', 'low'])
+Player = namedtuple('Player', ['name', 'id', 'high', 'low', 'hero', 'hero_name'])
 GameStart = namedtuple('GameStart', ['players',])
-GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'time'])
-CardPlayed = namedtuple('CardPlayed', ['won', 'first', 'time'])
+GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'duration'])
+CardPlayed = namedtuple('CardPlayed', ['cardId', 'turn', 'player'])
 GameEvent = namedtuple('GameEvent', ['type', 'data']) # This will get passed back to the GUI
 
 # Enum for GameEvent types
@@ -170,43 +170,105 @@ class LogParser():
     
     def _reset(self):
         self.players = {}
-        self.players['temp'] = []
         self.in_game = False
         self.turn_num = 1
         self.game_start_time = None
         self.entities = {}
-        
+        self.local_player_found = False
+        self.foreign_player_found = False
+        self.first = True
     def _game_start(self):
         self.in_game = True
         self.game_start_time = datetime.datetime.now()
         return
+   
     def _player_acc(self, entityid, playerid, high, low):
-        self.players['temp'].append(Player('', playerid, high, low))
+        self.players[playerid] = Player(None, playerid, high, low, None, None)
         return
+    
+    def _full_entity(self, entity):
+        name = entity.get('name', None)
+        if self.local_player_found is False:
+            if name is not None:
+                pinfo = self.players[entity['player']]
+                self.players['local'] = Player(None, pinfo.id, pinfo.high, pinfo.low,
+                None, None)
+                print('The local player is ID: {0}'.format(pinfo.id))
+                self.local_player_found = True
+                return
+        if self.foreign_player_found is False:
+            if self.local_player_found is True:
+                if entity['player'] is not self.players['local'].id:
+                    pinfo = self.players[entity['player']]
+                    self.players['foreign'] = Player(None, pinfo.id, pinfo.high, pinfo.low,
+                    None, None)
+                    print('The foreign player is ID: {0}'.format(pinfo.id))
+                    self.foreign_player_found = True
+                    return
+        cardId = entity.get('cardId', None)
+        if cardId is not None:
+            if cardId == 'GAME_005':
+                self.first = False
+            m = self.re_hero.match(cardId)
+            if m is not None:
+                if entity['player'] == self.players['local'].id:
+                    tmp_p = self.players['local']
+                    p = Player(tmp_p.name, tmp_p.id, tmp_p.high,
+                            tmp_p.low, int(m.group(1)), entity.get('name', None))
+                    self.players['local'] = p
+                    print("The local player is playing {0}".format(entity['name']))
+                    return
+                else:
+                    tmp_p = self.players['foreign']
+                    p = Player(tmp_p.name, tmp_p.id, tmp_p.high,
+                            tmp_p.low, int(m.group(1)), entity.get('name', None))
+                    self.players['foreign'] = p
+                    print("The foreign player is playing {0}".format(entity['name']))
+                    return
+    
+    def _show_entity(self, entity):
+        return
+    
     def _tag_change(self, tag, value, entity):
         if tag == 'PLAYSTATE':
-            if value in ('WON', 'LOSS', 'TIED'):
-                return
+            if value in ('WON', 'LOST', 'TIED'):
+                if self.in_game:
+                    if entity != self.players['local'].name:
+                        return
+                    else:
+                        deltaT = datetime.datetime.now() - self.game_start_time
+                        duration = deltaT.total_seconds()
+                        outcome = None
+                        if value == 'WON':
+                            outcome = GameOutcome(True, self.first, duration)
+                        else:
+                            outcome = GameOutcome(False, self.first, duration)
+                        self.q.put(GameEvent(EventType.GameEnd, outcome))
+                        self._reset()
+                        return
         elif tag == 'PLAYER_ID':
-            tmp = self.players['temp']
-            player = None
-            for i in range(len(tmp)):
-                p = tmp[i]
-                if p.id == value:
-                    player = p
-            tmpp = Player(entity, player.id, player.high, player.low)
-            self.players['temp'].remove(player)
-            self.player['temp'].append(tmpp)
-            print(self.players['temp'])
-        if name is not None:
-            local_pid = entity['player']
-            for p in self.players['temp']:
-                if p.id == local_pid:
-                    self.players['local'] = p
-            logging.debug('The local player is %s', self.players['local'].id)
-            
-        return
-        
+            if value == self.players['local'].id:
+                tmp_p = self.players['local']
+                p = Player(entity, tmp_p.id, tmp_p.high,
+                        tmp_p.low, tmp_p.hero, tmp_p.hero_name)
+                self.players['local'] = p
+            else:
+                tmp_p = self.players['foreign']
+                p = Player(entity, tmp_p.id, tmp_p.high,
+                        tmp_p.low, tmp_p.hero, tmp_p.hero_name)
+                self.players['foreign'] = p
+            if self.players['foreign'].name is not None:
+                if self.players['local'].name is not None:
+                    #Submit the event to the GUI
+                    self.q.put(GameEvent(EventType.GameStart, GameStart(self.players)))
+                    return
+            return
+        elif tag == 'ZONE':
+            if value == 'PLAY':
+                if isinstance(entity, dict):
+                    #Local player played a card
+                    e = CardPlayed(entity['cardId'],  self.turn_num, entity['player'])
+                    self.q.put(GameEvent(EventType.CardPlayed, e))
     def parse_entity(self, subline):
         # try the two more specific regular expressions
         match = self.re_ent_id.match(subline)

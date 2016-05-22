@@ -129,12 +129,40 @@ class Application(ttk.Frame):
         self._tracking_thread.join()
     
     def _update_gui(self):
-        self.update_idletasks()
+        try:
+            while 1:
+                tmp = self._q.get_nowait()
+                self._handle_event(tmp)
+                self.update_idletasks()
+        except queue.Empty:
+            pass
         self.after(100, self._update_gui)
         
     def _check_db_exists(self):
         return os.path.isfile()
 
+    def _handle_event(self, event):
+        etype = event[0]
+        data = event[1]
+        if etype == hs.EventType.GameStart:
+            # Check if we have seen this opponnent before
+            # Add them if we have not
+            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
+            self._debug_text.see(tk.END)
+            pass
+        elif etype == hs.EventType.CardPlayed:
+            # who played the card
+            #Display
+            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
+            self._debug_text.see(tk.END)
+            pass
+        elif etype == hs.EventType.GameEnd:
+            # Get the opponent id
+            # get the date
+            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
+            self._debug_text.see(tk.END)
+            pass
+        
 root = tk.Tk()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
