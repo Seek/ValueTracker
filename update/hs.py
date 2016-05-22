@@ -4,6 +4,10 @@ from collections import namedtuple
 import sqlite3
 from enum import Enum
 import re
+import datetime
+import logging
+import os
+import time
 
 # Regular expression we rely upon
 win_loss_pattern = r'PowerTaskList\.DebugPrintPower\(\) -     TAG_CHANGE Entity=(.+) tag=PLAYSTATE value=(WON|LOST|TIED)'
@@ -104,7 +108,11 @@ class AutocompleteCardEntry(ttk.Entry):
 #This function contains all of the logic required to parse the Hearthstone log
 # and generate events from the log, there are some serious issues with reponening
 # this is one of the major problems i need to research and address
-def thread_func(path, exit_flag, state_queue):
+def thread_func(*args):
+    path = args[0]
+    exit_flag = args[1]
+    state_queue = args[2]
+    parser = LogParser(state_queue)
     file = open(path, 'r')
     counter = 0
     old_size = os.stat(path).st_size
@@ -130,8 +138,7 @@ def thread_func(path, exit_flag, state_queue):
                 counter = 0
         else:
             counter -= 1
-            for obs in observers:
-                obs.parse_line(line)
+            parser.parse_line(line)
         
         
 # We need a well defined interface to pass events to the GUI
@@ -140,9 +147,10 @@ def thread_func(path, exit_flag, state_queue):
 # Who the foreign player is
 # when a card is played, what turn it was played, and who played it
 # when the game ends and the outcome (including relevant statistics)
-Player = namedtuple('Player', ['name', 'high', 'low'])
-Outcome = namedtuple('Outcome', ['won', 'first', 'time'])
-Outcome = namedtuple('CardPlayed', ['won', 'first', 'time'])
+Player = namedtuple('Player', ['name', 'id','high', 'low'])
+GameStart = namedtuple('GameStart', ['players',])
+GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'time'])
+CardPlayed = namedtuple('CardPlayed', ['won', 'first', 'time'])
 GameEvent = namedtuple('GameEvent', ['type', 'data']) # This will get passed back to the GUI
 
 # Enum for GameEvent types
@@ -155,12 +163,49 @@ class EventType(Enum):
     CardPlayed = 3
 
 class LogParser():
-    def __init__(self):
+    def __init__(self, state_queue):
+        self.q = state_queue
         self._compile_regex()
         self._reset()
     
     def _reset(self):
-        pass
+        self.players = {}
+        self.players['temp'] = []
+        self.in_game = False
+        self.turn_num = 1
+        self.game_start_time = None
+        self.entities = {}
+        
+    def _game_start(self):
+        self.in_game = True
+        self.game_start_time = datetime.datetime.now()
+        return
+    def _player_acc(self, entityid, playerid, high, low):
+        self.players['temp'].append(Player('', playerid, high, low))
+        return
+    def _tag_change(self, tag, value, entity):
+        if tag == 'PLAYSTATE':
+            if value in ('WON', 'LOSS', 'TIED'):
+                return
+        elif tag == 'PLAYER_ID':
+            tmp = self.players['temp']
+            player = None
+            for i in range(len(tmp)):
+                p = tmp[i]
+                if p.id == value:
+                    player = p
+            tmpp = Player(entity, player.id, player.high, player.low)
+            self.players['temp'].remove(player)
+            self.player['temp'].append(tmpp)
+            print(self.players['temp'])
+        if name is not None:
+            local_pid = entity['player']
+            for p in self.players['temp']:
+                if p.id == local_pid:
+                    self.players['local'] = p
+            logging.debug('The local player is %s', self.players['local'].id)
+            
+        return
         
     def parse_entity(self, subline):
         # try the two more specific regular expressions
@@ -169,11 +214,11 @@ class LogParser():
             #entity_pattern = "\[id=(\d+?) cardId= type=(.+?) zone=(.+?) zonePos=(\d+?) player=(\d)\]"
             id = match.group(1)
             cardId = None
-            type = match.group(2)
+            t = match.group(2)
             zone = match.group(3)
             zonePos = match.group(4)
             player = match.group(5)
-            return {'id': id, 'type': type, 'zone': zone, 'zonePos': zonePos, 'player': player}
+            return {'id': id, 'type': t, 'zone': zone, 'zonePos': zonePos, 'player': player}
         match = self.re_ent_name.match(subline)
         if match:
             #entity_pattern2 = "\[name=(.+?) id=(.+?) zone=(.+?) zonePos=(\d+) cardId=(.+?) player=(\d)\]"
@@ -203,38 +248,48 @@ class LogParser():
         # TAG CHANGE
         m = self.re_tag_change.match(line)
         if m is not None:
-            subline = line[match.end(0) + 1:]
+            subline = line[m.end(0) + 1:]
+            mm = self.re_tag_param.match(subline)
+            if mm is not None:
+                ent_str = mm.group(1)
+                tag = mm.group(2)
+                value = mm.group(3)
+                entity = self.parse_entity(ent_str)
+                self._tag_change(tag, value, entity)
             return
         # SHOW ENTITY
         m = self.re_show_ent.match(line)
         if m is not None:
-            subline = line[match.end(0) + 1:]
+            subline = line[m.end(0) + 1:]
             mm = self.re_sub_ent.match(subline)
             if mm is not None:
                 ent_str = mm.group(1)
                 entity = self.parse_entity(ent_str)
+                self._show_entity(entity)
             return
         # FULL ENTITY
         m = self.re_full_ent.match(line)
         if m is not None:
-            subline = line[match.end(0) + 1:]
+            subline = line[m.end(0) + 1:]
             entity = self.parse_entity(subline)
+            self._full_entity(entity)
             return
         # PLAYER
         m = self.re_player.match(line)
         if m is not None:
-            subline = line[match.end(0) + 1:]
+            subline = line[m.end(0) + 1:]
             mm = self.re_player_acc.match(subline)
             if mm is not None:
-                entid = match.group(1)
-                pid = match.group(2)
-                high = int(match.group(3))
-                low = int(match.group(4))
+                entityid = mm.group(1)
+                pid = mm.group(2)
+                high = int(mm.group(3))
+                low = int(mm.group(4))
+                self._player_acc(entityid, pid, high, low)
             return
         # CREATE GAME
         m = self.re_game_start.match(line)
         if m is not None:
-            return
+            self._game_start()
     def _compile_regex(self):
         self.re_game_start  = re.compile(create_game_pattern)
         self.re_player      = re.compile(player_pattern)
@@ -348,7 +403,7 @@ class LogParser():
 #         match = self.action_begin_regex.match(line)
 #         if match is not None:
 #             self.in_action = True
-#             subline = line[match.end(0) + 1:]
+#             subline = line[m.end(0) + 1:]
 #             # Fill in last_action_info
 #             match = self.action_param_regex.match(subline)
 #             if match:
@@ -369,7 +424,7 @@ class LogParser():
 #         # Track tag changes
 #         match = self.tag_change_regex.match(line)
 #         if match is not None:
-#             subline = line[match.end(0) + 1:]
+#             subline = line[m.end(0) + 1:]
 #             match = self.tag_param_regex.match(subline)
 #             if match:
 #                 entity_str = match.group(1)
@@ -383,7 +438,7 @@ class LogParser():
 #         # Track FULL_ENTITY
 #         match = self.full_entity_regex.match(line)
 #         if match is not None:
-#             subline = line[match.end(0) + 1:]
+#             subline = line[m.end(0) + 1:]
 #             entity_str = subline
 #             entity = self.parse_entity(entity_str)
 #             self.update_observers(entity, etype=LogEventType.FULL_ENTITY)
@@ -392,7 +447,7 @@ class LogParser():
 #         # Track SHOW_ENTITY
 #         match = self.show_entity_regex.match(line)
 #         if match is not None:
-#             subline = line[match.end(0) + 1:]
+#             subline = line[m.end(0) + 1:]
 #             match = self.show_entity_sub_regex.match(subline)
 #             if match:
 #                 entity_str = match.group(1)
@@ -403,7 +458,7 @@ class LogParser():
 #         # Track unique player information
 #         match = self.player_regex.match(line)
 #         if match is not None:
-#             subline = line[match.end(0) + 1:]
+#             subline = line[m.end(0) + 1:]
 #             match = self.player_acc_regex.match(subline)
 #             if match:
 #                 eid = match.group(1)

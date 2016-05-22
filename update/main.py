@@ -10,6 +10,7 @@ import threading
 import configparser
 import os.path
 import logging
+import queue
 #Local code
 import hs
 
@@ -43,11 +44,11 @@ class Application(ttk.Frame):
         self._init_database()
         self._create_widgets()
         self._create_menu()
-        # self._start_tracking_thread()
+        self._start_tracking_thread()
         self._update_gui()
         
     def on_close(self):
-        # self._end_tracking_thread()
+        self._end_tracking_thread()
         self.db.close()
         self.master.destroy()
 
@@ -116,8 +117,12 @@ class Application(ttk.Frame):
         self.db = sqlite3.connect('stats.db')
     
     def _start_tracking_thread(self):
+        self._q = queue.Queue()
         self._exit_flag = threading.Event()
-        self._tracking_thread = threading.Thread()
+        path = r'C:\Program Files (x86)\Hearthstone\Logs\Power.log'
+        self._tracking_thread = threading.Thread(target=hs.thread_func, 
+        args=(path, self._exit_flag, self._q))
+        self._tracking_thread.start()
     
     def _end_tracking_thread(self):
         self._exit_flag.set()
