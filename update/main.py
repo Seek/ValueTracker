@@ -2,13 +2,14 @@
 import tkinter as tk
 from tkinter import ttk
 
-import configparser
-
 #Functional imports
 import ssl
 import urllib.request
 import sqlite3
-
+import threading
+import configparser
+import os.path
+import logging
 #Local code
 import hs
 
@@ -29,12 +30,24 @@ class Application(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        #Get our configuation and set up logging
+        logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
+        self.config = configparser.ConfigParser()
+        if os.path.isfile('config.ini') is False:
+            logging.warn('config.ini is missing, falling back on defaults')
+        else:
+            self.config.read('config.ini')
+        
         #Initialize the gui
         self._init_database()
         self._create_widgets()
         self._create_menu()
+        # self._start_tracking_thread()
+        self._update_gui()
         
     def on_close(self):
+        # self._end_tracking_thread()
         self.db.close()
         self.master.destroy()
 
@@ -102,6 +115,21 @@ class Application(ttk.Frame):
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
     
+    def _start_tracking_thread(self):
+        self._exit_flag = threading.Event()
+        self._tracking_thread = threading.Thread()
+    
+    def _end_tracking_thread(self):
+        self._exit_flag.set()
+        self._tracking_thread.join()
+    
+    def _update_gui(self):
+        self.update_idletasks()
+        self.after(100, self._update_gui)
+        
+    def _check_db_exists(self):
+        return os.path.isfile()
+
 root = tk.Tk()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
