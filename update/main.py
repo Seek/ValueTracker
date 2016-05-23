@@ -20,6 +20,23 @@ import hs
 # req = urllib.request.urlopen(url, context=context)
 # f = req.read() // f would contain the json data
 
+class DeckCreator(ttk.Frame):
+    def __init__(self, cursor, master=None):
+        # Initialize
+        ttk.Frame.__init__(self, master, width= 800, height = 600)
+        self.cursor = cursor
+        self.master = master
+        self.master.columnconfigure(0, weight=1)
+        self.master.rowconfigure(0, weight=1)
+        self.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+    def on_close(self):
+        self.master.destroy()
+
+
 class Application(ttk.Frame):
     def __init__(self, master=None):
         # Initialize
@@ -79,7 +96,7 @@ class Application(ttk.Frame):
         self._data_frame = ttk.Frame(self._notebook)
         self._card_stats_frame = ttk.Frame(self._notebook)
         self._debug_frame = ttk.Frame(self._notebook)
-        self._notebook.add(self._deck_frame, text = 'Tracking')
+        self._notebook.add(self._deck_frame, text = 'Decks')
         self._notebook.add(self._stats_frame, text = 'Statistics')
         self._notebook.add(self._data_frame, text = 'Data')
         self._notebook.add(self._card_stats_frame, text = 'Card Statistics')
@@ -90,9 +107,14 @@ class Application(ttk.Frame):
         self._notebook.rowconfigure(0, weight=1)
         self._debug_frame.columnconfigure(0, weight=1)
         self._debug_frame.rowconfigure(0, weight=1)
+        self._deck_frame.columnconfigure(0, weight=1)
+        self._deck_frame.rowconfigure(0, weight=1)
+        self._card_stats_frame.columnconfigure(0, weight=1)
+        self._card_stats_frame.rowconfigure(0, weight=1)
         #Create each interface
         self._create_debug_frame()
         self._create_card_stats_frame()
+        self._create_deck_frame()
         
     def _create_debug_frame(self):
         pw = ttk.PanedWindow(self._debug_frame, orient=tk.HORIZONTAL)
@@ -112,6 +134,29 @@ class Application(ttk.Frame):
         self._card_stats_entry = hs.AutocompleteCardEntry(self._card_stats_frame,
         self.db.cursor())
         self._card_stats_entry.grid(column=0, row=0, sticky=(tk.N,tk.W))
+        
+    def _create_deck_frame(self):
+        pw = ttk.PanedWindow(self._deck_frame, orient=tk.HORIZONTAL)
+        pw.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
+        pw.columnconfigure(0, weight=1)
+        pw.rowconfigure(0, weight=1)
+        f1 = ttk.LabelFrame(pw, text='Decks')
+        f2 = ttk.LabelFrame(pw,text='Tracking')
+        self._deck_new_btn = ttk.Button(f1, text="New Deck", command=self._deck_new)
+        self._deck_new_btn.pack(fill=tk.X)
+        self._deck_del_btn = ttk.Button(f1, text="Delete Deck", command=self._deck_del)
+        self._deck_del_btn.pack(fill=tk.X)
+        self._deck_tree = ttk.Treeview(f1, columns=('cls', 'name', 'tags'), displaycolumns=('cls name tags'), show='headings')
+        self._deck_tree.column("#0", width=10)
+        self._deck_tree.column("cls", width=50)
+        self._deck_tree.column("name", width=100)
+        self._deck_tree.column("tags", width=50)
+        self._deck_tree.heading("cls", text="Class")
+        self._deck_tree.heading("name", text="Name")
+        self._deck_tree.heading("tags", text="Tags")
+        self._deck_tree.pack(fill=tk.BOTH, expand=1)
+        pw.add(f1)
+        pw.add(f2)
     
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
@@ -162,7 +207,11 @@ class Application(ttk.Frame):
             self._debug_text.insert(tk.END, str(event) + '\n', (None,))
             self._debug_text.see(tk.END)
             pass
+    def _deck_new(self):
+        pass
         
+    def _deck_del(self):
+        pass
 root = tk.Tk()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)

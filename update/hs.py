@@ -116,7 +116,7 @@ def thread_func(*args):
     file = open(path, 'r')
     counter = 0
     old_size = os.stat(path).st_size
-    #file.seek(0,2)
+    file.seek(0,2)
     while 1:
         if exit_flag.is_set():
             file.close()
@@ -149,7 +149,7 @@ def thread_func(*args):
 # when the game ends and the outcome (including relevant statistics)
 Player = namedtuple('Player', ['name', 'id', 'high', 'low', 'hero', 'hero_name'])
 GameStart = namedtuple('GameStart', ['players',])
-GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'duration'])
+GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'duration', 'turns'])
 CardPlayed = namedtuple('CardPlayed', ['cardId', 'turn', 'player'])
 GameEvent = namedtuple('GameEvent', ['type', 'data']) # This will get passed back to the GUI
 
@@ -226,8 +226,11 @@ class LogParser():
                     print("The foreign player is playing {0}".format(entity['name']))
                     return
     
-    def _show_entity(self, entity):
-        return
+    def _show_entity(self, entity, cardId):
+        if entity['player'] is self.players['foreign'].id:
+            if entity['zone'] in ('DECK', 'HAND'):
+                e = CardPlayed(cardId,  self.turn_num, entity['player'])
+                self.q.put(GameEvent(EventType.CardPlayed, e))
     
     def _tag_change(self, tag, value, entity):
         if tag == 'PLAYSTATE':
@@ -240,9 +243,9 @@ class LogParser():
                         duration = deltaT.total_seconds()
                         outcome = None
                         if value == 'WON':
-                            outcome = GameOutcome(True, self.first, duration)
+                            outcome = GameOutcome(True, self.first, duration, self.turn_num)
                         else:
-                            outcome = GameOutcome(False, self.first, duration)
+                            outcome = GameOutcome(False, self.first, duration, self.turn_num)
                         self.q.put(GameEvent(EventType.GameEnd, outcome))
                         self._reset()
                         return
@@ -269,6 +272,9 @@ class LogParser():
                     #Local player played a card
                     e = CardPlayed(entity['cardId'],  self.turn_num, entity['player'])
                     self.q.put(GameEvent(EventType.CardPlayed, e))
+        elif tag == 'TURN':
+            if entity == 'GameEntity':
+                self.turn_num = int(value)
     def parse_entity(self, subline):
         # try the two more specific regular expressions
         match = self.re_ent_id.match(subline)
@@ -327,7 +333,7 @@ class LogParser():
             if mm is not None:
                 ent_str = mm.group(1)
                 entity = self.parse_entity(ent_str)
-                self._show_entity(entity)
+                self._show_entity(entity, mm.group(2))
             return
         # FULL ENTITY
         m = self.re_full_ent.match(line)
