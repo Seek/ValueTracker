@@ -11,6 +11,7 @@ import configparser
 import os.path
 import logging
 import queue
+from collections import namedtuple
 #Local code
 import hs
 
@@ -19,6 +20,62 @@ import hs
 # context = ssl._create_unverified_context()
 # req = urllib.request.urlopen(url, context=context)
 # f = req.read() // f would contain the json data
+
+Card = namedtuple('Card', ['id', 'name','rarity',
+                             'cost', 'attack', 'health'])
+                         
+#SQL statements
+sql_select_card_by_id = "SELECT * FROM cards WHERE id LIKE ?"
+sql_select_card_by_name = "SELECT * FROM cards WHERE name LIKE ?"
+# A deck will just be a dictionary with the value being 
+class DeckTreeview(ttk.Treeview):
+    def __init__(self, master, cursor, *args, **kwargs):
+        ttk.Treeview.__init__(self, master, 
+                            columns=('cost', 'name', 'num'), 
+                            displaycolumns=('cost name num'),
+                            show = 'headings')
+        self.cursor = cursor
+        self.column("name", width=150)
+        self.column("num", width=15)
+        self.column("cost", width=15)
+        self.heading("name", text="Name")
+        self.heading("num", text="#")
+        self.heading("cost", text='Cost')
+        self.tag_configure('common', background='gray')
+        self.tag_configure('played', background='dim gray')
+        self.tag_configure('inhand', foreground = 'OliveDrab1')
+        self.tag_configure('rare', background='blue')
+        self.tag_configure('epic', background='purple')
+        self.tag_configure('legend', background='goldenrod')
+        self.reset_view()
+    
+    def set_deck(self, deck):
+        self.reset_view()
+        
+    def add_card(self, card):
+        if card not in self.deck:
+            c = self.cursor.execute(sql_select_card_by_id, ('%' + card +'%',)).fetchone()
+            cc = Card(c['id'], c['name'], c['rarity'], c['cost'], c['attack'], c['health'])
+            self.deck['card'] = [cc, 1]
+            #Update display
+            self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
+        else:
+            n = self.deck['card']
+            if n < 2:
+                self.deck['card'][1] += 1
+                self.item(self.deck['card'][0].id, values=(cc.name, '2'))
+        return
+    def remove_card(self, card):
+        pass
+        
+    def card_played(self, card):
+        self.item(card, tags=('played',))
+        
+    def card_drawn(self, card):
+        pass
+        
+    def reset_view(self):
+        self.deck = {} 
 
 class DeckCreator(ttk.Frame):
     def __init__(self, cursor, master=None):
@@ -33,10 +90,14 @@ class DeckCreator(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         
+        self._create_widgets(self)
+        
     def on_close(self):
         self.master.destroy()
 
-
+    def _create_widgets(self):
+        self._card_entry = hs.AutocompleteCardEntry(self, self.cursor)
+        
 class Application(ttk.Frame):
     def __init__(self, master=None):
         # Initialize
@@ -147,7 +208,7 @@ class Application(ttk.Frame):
         self._deck_del_btn = ttk.Button(f1, text="Delete Deck", command=self._deck_del)
         self._deck_del_btn.pack(fill=tk.X)
         self._deck_tree = ttk.Treeview(f1, columns=('cls', 'name', 'tags'), displaycolumns=('cls name tags'), show='headings')
-        self._deck_tree.column("#0", width=10)
+        #self._deck_tree.column("#0", width=10)
         self._deck_tree.column("cls", width=50)
         self._deck_tree.column("name", width=100)
         self._deck_tree.column("tags", width=50)
@@ -155,11 +216,16 @@ class Application(ttk.Frame):
         self._deck_tree.heading("name", text="Name")
         self._deck_tree.heading("tags", text="Tags")
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
+        self._deck_treeview = DeckTreeview(f2, self.db.cursor())
+        self._deck_treeview.pack(fill=tk.BOTH, expand=1)
+        self._deck_treeview.add_card('BRM_002')
+        self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
     
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
+        self.db.row_factory = sqlite3.Row
     
     def _start_tracking_thread(self):
         self._q = queue.Queue()
