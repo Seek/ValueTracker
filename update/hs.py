@@ -26,11 +26,18 @@ tag_param_pattern = "Entity=(.+) tag=(.+) value=(.+)"
 player_pattern = "PowerTaskList\.DebugPrintPower\(\) -         Player"
 player_acc_pattern = "EntityID=(\d) PlayerID=(\d) GameAccountId=\[hi=(\d+?) lo=(\d+?)\]"
 
+# Hero to int mappings
+hero_dict = {9: 'Priest', 3: 'Rogue', 8: 'Mage', 4: 'Paladin', 1: 'Warrior',
+             7: 'Warlock', 5: 'Hunter', 2: 'Shaman', 6: 'Druid'}
+
+hero_dict_names = {v: k for k, v in hero_dict.items()}
+
 class AutocompleteCardEntry(ttk.Entry):
     """ Requires a working database cursor to work """
     def __init__(self, parent, cursor, **kwargs):
         ttk.Entry.__init__(self, parent, **kwargs)
         self.var = self['textvariable']
+        self.parent = parent
         self.cursor = cursor
         if self.var == '':
             self.var = self['textvariable'] = tk.StringVar()
@@ -40,9 +47,12 @@ class AutocompleteCardEntry(ttk.Entry):
         self.bind("<Return>", self.selection)
         self.bind("<Up>", self.up)
         self.bind("<Down>", self.down)
+        self.cb = []
         
         self.lb_up = False
-        
+    def bind_card_cb(self, func):
+        self.cb.append(func)
+
     def changed(self, name, index, mode):  
         if self.var.get() == '':
             self.lb.destroy()
@@ -51,10 +61,10 @@ class AutocompleteCardEntry(ttk.Entry):
             words = self.comparison()
             if words:            
                 if not self.lb_up:
-                    self.lb = tk.Listbox()
+                    self.lb = tk.Listbox(self.parent)
                     self.lb.bind("<Double-Button-1>", self.selection)
                     self.lb.bind("<Right>", self.selection)
-                    self.lb.place(x=self.winfo_x(), y=self.winfo_y()+2*self.winfo_height())
+                    self.lb.place(x=self.winfo_x(), y=self.winfo_y()+self.winfo_height())
                     self.lb_up = True
                 
                 self.lb.delete(0, tk.END)
@@ -71,6 +81,11 @@ class AutocompleteCardEntry(ttk.Entry):
             self.lb.destroy()
             self.lb_up = False
             self.icursor(tk.END)
+            for f in self.cb:
+                f(self.var.get())
+        else:
+            for f in self.cb:
+                f(self.var.get())
 
     def up(self, event):
         if self.lb_up:
@@ -116,7 +131,7 @@ def thread_func(*args):
     file = open(path, 'r')
     counter = 0
     old_size = os.stat(path).st_size
-    file.seek(0,2)
+    #file.seek(0,2)
     while 1:
         if exit_flag.is_set():
             file.close()
@@ -151,6 +166,7 @@ Player = namedtuple('Player', ['name', 'id', 'high', 'low', 'hero', 'hero_name']
 GameStart = namedtuple('GameStart', ['players',])
 GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'duration', 'turns'])
 CardPlayed = namedtuple('CardPlayed', ['cardId', 'turn', 'player'])
+CardDrawn = namedtuple('CardDrawn', ['cardId', 'turn'])
 GameEvent = namedtuple('GameEvent', ['type', 'data']) # This will get passed back to the GUI
 
 # Enum for GameEvent types
@@ -161,6 +177,7 @@ class EventType(Enum):
     GameEnd = 2
     #Contains a dictionary with the information about who, when, and what
     CardPlayed = 3
+    CardDrawn = 4
 
 class LogParser():
     def __init__(self, state_queue):
@@ -195,7 +212,6 @@ class LogParser():
                 None, None)
                 print('The local player is ID: {0}'.format(pinfo.id))
                 self.local_player_found = True
-                return
         if self.foreign_player_found is False:
             if self.local_player_found is True:
                 if entity['player'] is not self.players['local'].id:
@@ -204,7 +220,6 @@ class LogParser():
                     None, None)
                     print('The foreign player is ID: {0}'.format(pinfo.id))
                     self.foreign_player_found = True
-                    return
         cardId = entity.get('cardId', None)
         if cardId is not None:
             if cardId == 'GAME_005':
@@ -231,6 +246,10 @@ class LogParser():
             if entity['zone'] in ('DECK', 'HAND'):
                 e = CardPlayed(cardId,  self.turn_num, entity['player'])
                 self.q.put(GameEvent(EventType.CardPlayed, e))
+        if entity['player'] is self.players['local'].id:
+            if entity['zone'] == 'DECK':
+                e = CardDrawn(cardId,  self.turn_num)
+                self.q.put(GameEvent(EventType.CardDrawn, e))
     
     def _tag_change(self, tag, value, entity):
         if tag == 'PLAYSTATE':
@@ -270,8 +289,10 @@ class LogParser():
             if value == 'PLAY':
                 if isinstance(entity, dict):
                     #Local player played a card
-                    e = CardPlayed(entity['cardId'],  self.turn_num, entity['player'])
-                    self.q.put(GameEvent(EventType.CardPlayed, e))
+                    cardid = entity.get('cardId', None)
+                    if cardid is not None:
+                        e = CardPlayed(entity['cardId'],  self.turn_num, entity['player'])
+                        self.q.put(GameEvent(EventType.CardPlayed, e))
         elif tag == 'TURN':
             if entity == 'GameEntity':
                 self.turn_num = int(value)

@@ -1,7 +1,8 @@
 #GUI imports
 import tkinter as tk
 from tkinter import ttk
-
+from tkinter import messagebox
+from tkinter import scrolledtext
 #Functional imports
 import ssl
 import urllib.request
@@ -12,6 +13,8 @@ import os.path
 import logging
 import queue
 from collections import namedtuple
+import pdb
+import datetime
 #Local code
 import hs
 
@@ -27,6 +30,60 @@ Card = namedtuple('Card', ['id', 'name','rarity',
 #SQL statements
 sql_select_card_by_id = "SELECT * FROM cards WHERE id LIKE ?"
 sql_select_card_by_name = "SELECT * FROM cards WHERE name LIKE ?"
+sql_select_deck_by_name = "SELECT name from deck WHERE name LIKE ?"
+sql_select_deck_class_by_id = "SELECT class from deck WHERE id = ?"
+sql_insert_deck = "INSERT INTO deck (name, class) VALUES(?, ?)"
+sql_create_deck = """CREATE TABLE `{0}` (
+	`card`	TEXT NOT NULL,
+	`num`	INTEGER NOT NULL,
+	PRIMARY KEY(card)
+)"""
+sql_insert_card_into_deck = "INSERT INTO {0} (card, num) VALUES (?,?)"
+sql_select_all_decks = "SELECT id,name FROM deck"
+sql_select_cards_from_deck = "SELECT * from {0}"
+sql_select_card_from_deck = "SELECT * from {0} WHERE card LIKE ?"
+sql_update_card_in_deck = "UPDATE {0} SET num = ? WHERE card LIKE ?"
+sql_delete_deck = 'DELETE FROM deck WHERE id = ?'
+sql_find_opponent = 'SELECT id from player WHERE high = ? AND low = ?'
+sql_insert_opponent = 'INSERT INTO player (name, high, low) VALUES(?,?,?)'
+sql_select_hero_by_name = 'SELECT id FROM hero WHERE name like ?'
+sql_insert_match = """INSERT INTO match 
+(opponent, first, won, duration, date, opp_hero, player_hero, deck)
+VALUES (?,?,?,?,?,?,?,?)"""
+sql_insert_card = "INSERT INTO card_played (cardid, turn, local) VALUES(?,?,?)"
+def card_from_row(row):
+    return Card(row['id'], row['name'], row['rarity'], 
+    row['cost'], row['attack'], row['health'])
+
+def load_deck_from_sql(cursor, id):
+    sql_str = sql_select_cards_from_deck.format('deck_'+str(id))
+    rows = cursor.execute(sql_str).fetchall()
+    deck = {}
+    for row in rows:
+        tmp = cursor.execute(sql_select_card_by_id, (row['card'],)).fetchone()
+        card = card_from_row(tmp)
+        deck[card.id] = (card, row['num'])
+    return deck
+    
+    
+def save_deck_to_sql(cursor, deck, table):
+    insert_str = sql_insert_card_into_deck.format(table)
+    select_str = sql_select_card_from_deck.format(table)
+    update_str = sql_update_card_in_deck.format(table)
+    for card in deck.values():
+        row = cursor.execute(select_str, ('%' + card[0].id +'%',)).fetchone()
+        if row is None:
+            cursor.execute(insert_str, (card[0].id, card[1]))
+        else:
+            cursor.execute(update_str, (card[1],'%' + card[0].id +'%'))
+            print('Updated ' + card[0].id + 'to ' + str(card[1]))
+        
+class HeroClassListbox(tk.Listbox):
+        def __init__(self, master, *args, **kwargs):
+            tk.Listbox.__init__(self, master,  height=9)
+            vals = list(hs.hero_dict.values())
+            for v in vals:
+                self.insert(tk.END, v)         
 # A deck will just be a dictionary with the value being 
 class DeckTreeview(ttk.Treeview):
     def __init__(self, master, cursor, *args, **kwargs):
@@ -41,63 +98,160 @@ class DeckTreeview(ttk.Treeview):
         self.heading("name", text="Name")
         self.heading("num", text="#")
         self.heading("cost", text='Cost')
+        self.bind("<Double-1>", self._on_double_click)
         self.tag_configure('common', background='gray')
         self.tag_configure('played', background='dim gray')
-        self.tag_configure('inhand', foreground = 'OliveDrab1')
+        self.tag_configure('drawn', foreground = 'OliveDrab1')
         self.tag_configure('rare', background='blue')
         self.tag_configure('epic', background='purple')
         self.tag_configure('legend', background='goldenrod')
-        self.reset_view()
+        self.enable_building = True
+        #self.reset_view()
+        self.deck = {}
     
     def set_deck(self, deck):
         self.reset_view()
         
+    def _on_double_click(self, event):
+        if self.enable_building == True:
+            sel = self.selection()
+            if len(sel) > 0:
+                item = self.selection()[0]
+                self.remove_card(item)
+        
     def add_card(self, card):
         if card not in self.deck:
             c = self.cursor.execute(sql_select_card_by_id, ('%' + card +'%',)).fetchone()
-            cc = Card(c['id'], c['name'], c['rarity'], c['cost'], c['attack'], c['health'])
-            self.deck['card'] = [cc, 1]
-            #Update display
-            self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
+            if c is not None:
+                cc = card_from_row(c)
+                self.deck[card] = [cc, 1]
+                #Update display
+                self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
+                return
         else:
-            n = self.deck['card']
+            cc = self.deck[card][0]
+            n = self.deck[card][1]
             if n < 2:
-                self.deck['card'][1] += 1
-                self.item(self.deck['card'][0].id, values=(cc.name, '2'))
+                self.deck[card][1] += 1
+                self.item(cc.id, values=(cc.cost, cc.name, '2'))
+                return
         return
+        
     def remove_card(self, card):
-        pass
+        if card in self.deck:
+            cc = self.deck[card][0]
+            n = self.deck[card][1]
+            if n > 1:
+                self.deck[card][1] -= 1
+                self.item(cc.id, values=(cc.cost, cc.name, '1'))
+            else:
+                self.delete(card)
         
     def card_played(self, card):
-        self.item(card, tags=('played',))
+        if card in self.deck:
+            tags = self.item(card, 'tags')
+            if tags is '':
+                tags = ('played',)
+            else:
+                tags= [tags, 'played']
+            self.item(card, tags=tags)
+            values = self.item(card, 'values')
+            self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
         
     def card_drawn(self, card):
-        pass
+        if card in self.deck:
+            tags = self.item(card, 'tags')
+            print(tags)
+            if tags is '':
+                tags = ('drawn',)
+            else:
+                tags= [tags, 'drawn']
+            self.item(card, tags=tags)
+            self.item(card, tags=('drawn',))
         
     def reset_view(self):
-        self.deck = {} 
+        self.delete(*self.get_children())
+        for val in self.deck.values():
+            card = val[0]
+            n = val[1]
+            self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
+            self.item(card.id, tags=(None,))
+        
+    def get_num_cards(self):
+        i = 0
+        for v in self.deck.values():
+            i += v[1]
+        return i
 
 class DeckCreator(ttk.Frame):
     def __init__(self, cursor, master=None):
         # Initialize
         ttk.Frame.__init__(self, master, width= 800, height = 600)
+        self.pack(fill=tk.BOTH, expand=1)
         self.cursor = cursor
         self.master = master
-        self.master.columnconfigure(0, weight=1)
-        self.master.rowconfigure(0, weight=1)
-        self.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
-        
-        self._create_widgets(self)
-        
-    def on_close(self):
-        self.master.destroy()
+        self._create_widgets()
+        self.update_deck = False
+        self.deck_id = None
 
     def _create_widgets(self):
+        frame = ttk.Label(self, text='Select a class:')
+        frame.pack(fill=tk.X, expand=0)
+        self._hero_class_list = HeroClassListbox(self)
+        self._hero_class_list.pack(fill=tk.X, expand=0)
+        frame = ttk.Label(self, text='Enter Card Name:')
+        frame.pack(fill=tk.X, expand=0)
         self._card_entry = hs.AutocompleteCardEntry(self, self.cursor)
+        self._card_entry.pack(fill=tk.X, expand=0)
+        self._card_entry.bind_card_cb(self._card_picked)
+        self._deck_treeview = DeckTreeview(self, self.cursor)
+        self._deck_treeview.pack(fill=tk.BOTH, expand=1)
+        frame = ttk.Label(self, text='Enter Deck Name:')
+        frame.pack(fill=tk.X, expand=0)
+        self._deck_name_entry = ttk.Entry(self)
+        self._deck_name_entry.pack(fill=tk.X, expand=0)
+        self._save_deck_btn = ttk.Button(self, text = 'Save', command= self._btn_save)
+        self._save_deck_btn.pack(fill=tk.X, expand=0)
+    
+    def _btn_save(self):
+        if self._deck_treeview.get_num_cards() > 30:
+            print('Too many cards')
+            return
+        elif self._deck_name_entry.get() == '' and self.update_deck is False:
+            print('No name given')
+            return
+        elif len(self._hero_class_list.curselection()) < 1 and self.update_deck is False:
+            print('No class selected')
+            return
+        elif self.update_deck is True:
+            table_name = 'deck_' + str(self.deck_id)
+            save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+            return
+        else:
+            # Write to db
+            item = self._hero_class_list.curselection()[0]
+            herostr = self._hero_class_list.get(item)
+            heronum = hs.hero_dict_names[herostr]
+            deck = self.cursor.execute(sql_select_deck_by_name, 
+                        ('%' + self._deck_name_entry.get() +'%',)).fetchone()
+            if deck is not None:
+                print('Deck with that name already exists')
+                return
+            else:
+                self.cursor.execute(sql_insert_deck, (self._deck_name_entry.get(),heronum))
+                deckid = self.cursor.lastrowid
+                table_name = 'deck_' + str(deckid)
+                self.cursor.execute(sql_create_deck.format(table_name))
+                save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+                return
         
+    def _card_picked(self, card):
+        cards = self.cursor.execute(sql_select_card_by_name, ('%' + card +'%',)).fetchall()
+        if cards is not None:
+            for c in cards:
+                if c['name'] == card:
+                    self._deck_treeview.add_card(c['id'])
+
 class Application(ttk.Frame):
     def __init__(self, master=None):
         # Initialize
@@ -124,9 +278,13 @@ class Application(ttk.Frame):
         self._create_menu()
         self._start_tracking_thread()
         self._update_gui()
+        self._refresh_deck_list()
+        self._reset_game_state()
         
     def on_close(self):
         self._end_tracking_thread()
+        self.db.commit()
+        self.cursor.close()
         self.db.close()
         self.master.destroy()
 
@@ -183,17 +341,17 @@ class Application(ttk.Frame):
         pw.columnconfigure(0, weight=1)
         pw.rowconfigure(0, weight=1)
         f1 = ttk.LabelFrame(pw, text='Game State')
-        f2 = ttk.LabelFrame(pw,text='Debug Output')
+        #f2 = ttk.LabelFrame(pw,text='Debug Output')
         self._debug_tree = ttk.Treeview(f1)
         self._debug_tree.pack(fill=tk.BOTH, expand=1)
-        self._debug_text = tk.Text(f2)
+        self._debug_text = tk.scrolledtext.ScrolledText(pw)
         self._debug_text.pack(fill=tk.BOTH, expand=1)
         pw.add(f1)
-        pw.add(f2)
+        pw.add(self._debug_text)
         
     def _create_card_stats_frame(self):
         self._card_stats_entry = hs.AutocompleteCardEntry(self._card_stats_frame,
-        self.db.cursor())
+        self.cursor)
         self._card_stats_entry.grid(column=0, row=0, sticky=(tk.N,tk.W))
         
     def _create_deck_frame(self):
@@ -205,10 +363,13 @@ class Application(ttk.Frame):
         f2 = ttk.LabelFrame(pw,text='Tracking')
         self._deck_new_btn = ttk.Button(f1, text="New Deck", command=self._deck_new)
         self._deck_new_btn.pack(fill=tk.X)
+        self._deck_edit_btn = ttk.Button(f1, text="Edit Deck", command=self._deck_edit)
+        self._deck_edit_btn.pack(fill=tk.X)
         self._deck_del_btn = ttk.Button(f1, text="Delete Deck", command=self._deck_del)
         self._deck_del_btn.pack(fill=tk.X)
         self._deck_tree = ttk.Treeview(f1, columns=('cls', 'name', 'tags'), displaycolumns=('cls name tags'), show='headings')
         #self._deck_tree.column("#0", width=10)
+        self._deck_tree.bind("<Double-1>", self._deck_list_dbl_click)
         self._deck_tree.column("cls", width=50)
         self._deck_tree.column("name", width=100)
         self._deck_tree.column("tags", width=50)
@@ -216,16 +377,18 @@ class Application(ttk.Frame):
         self._deck_tree.heading("name", text="Name")
         self._deck_tree.heading("tags", text="Tags")
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
-        self._deck_treeview = DeckTreeview(f2, self.db.cursor())
+        self._deck_treeview = DeckTreeview(f2, self.cursor)
         self._deck_treeview.pack(fill=tk.BOTH, expand=1)
-        self._deck_treeview.add_card('BRM_002')
-        self._deck_treeview.card_played('BRM_002')
+        # self._deck_treeview.add_card('BRM_002')
+        # self._deck_treeview.card_drawn('BRM_002')
+        # self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
     
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
         self.db.row_factory = sqlite3.Row
+        self.cursor = self.db.cursor()
     
     def _start_tracking_thread(self):
         self._q = queue.Queue()
@@ -255,29 +418,136 @@ class Application(ttk.Frame):
     def _handle_event(self, event):
         etype = event[0]
         data = event[1]
-        if etype == hs.EventType.GameStart:
-            # Check if we have seen this opponnent before
-            # Add them if we have not
-            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
+        if etype == hs.EventType.CardPlayed:
+            if data.player == self.players['local'].id:
+                self._debug_text.insert(tk.END, 
+                'The local player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
+                (None,))
+            else:
+                self._debug_text.insert(tk.END, 
+                'The foreign player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
+                (None,))
             self._debug_text.see(tk.END)
-            pass
-        elif etype == hs.EventType.CardPlayed:
-            # who played the card
-            #Display
-            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
-            self._debug_text.see(tk.END)
-            pass
+            self.cards_played.append(data)
+            return
+        elif etype == hs.EventType.CardDrawn:
+            self._debug_text.insert(tk.END, 
+            'The local player just drew {0} on turn {1}\n'.format(data.cardId, data.turn), 
+            (None,))
+            return
         elif etype == hs.EventType.GameEnd:
-            # Get the opponent id
-            # get the date
-            self._debug_text.insert(tk.END, str(event) + '\n', (None,))
-            self._debug_text.see(tk.END)
-            pass
+            self._debug_text.insert(tk.END, 
+            'The game just ended\n', 
+            (None,))
+            self._write_game(data)
+            self._deck_treeview.reset_view()
+            return
+        elif etype == hs.EventType.GameStart:
+            self.players = data.players
+            local = self.players['local']
+            foreign = self.players['foreign']
+            self._debug_text.insert(tk.END, 
+            'The local player is {0} [id = {1}]\n'.format(local.name, local.id),
+            (None,))
+            self._debug_text.insert(tk.END, 
+            'The foreign player is {0} [id = {1}]\n'.format(foreign.name, foreign.id),
+            (None,))
+            return
+        else:
+                return
     def _deck_new(self):
-        pass
+        win = tk.Toplevel(takefocus=True)
+        dc = DeckCreator(self.cursor, master=win)
+        self.wait_window(win)
+        self.db.commit()
+        #Refresh deck list
+        self._refresh_deck_list()
         
+    def _write_game(self, gameoutcome):
+        # Check if we have seen the opponent before
+        local = self.players['local']
+        foreign = self.players['foreign']
+        oppid = self.cursor.execute(sql_find_opponent, (foreign.high, foreign.low)).fetchone()
+        if oppid is None:
+            self.cursor.execute(sql_insert_opponent, (foreign.name,foreign.high, foreign.low))
+            oppid = self.cursor.lastrowid
+        #We now have the player id, so we can write the match information
+        # First we need to get the correct hero information
+        local_hero = self.cursor.execute(sql_select_hero_by_name, 
+                        ('%' + local.hero_name + '%',)).fetchone()
+        foreign_hero = self.cursor.execute(sql_select_hero_by_name, 
+                        ('%' + foreign.hero_name + '%',)).fetchone()
+        # submit the data                
+        date = datetime.datetime.now()
+        
+        sql_data = (oppid, gameoutcome.first, gameoutcome.won, gameoutcome.duration,
+        date, foreign_hero['id'], local_hero['id'], self.active_deck)
+        self.cursor.execute(sql_insert_match, sql_data)
+        matchid = self.cursor.lastrowid
+        
+        #submit the cards
+        for card in self.cards_played:
+            local_player = False
+            if card.player == local.id:
+                local_player = True
+            self.cursor.execute(sql_insert_card, (card.cardId, card.turn, local_player))
+        self.db.commit()
+        self._reset_game_state()
+        
+
+    def _reset_game_state(self):
+        self.cards_played = []
+        self.players = None
+        
+    def _refresh_deck_list(self):
+        rows = self.cursor.execute(sql_select_all_decks).fetchall()
+        if rows is not None:
+            self._deck_tree.delete(* self._deck_tree.get_children())
+            for row in rows:
+                self._deck_tree.insert('', 'end', row['id'], 
+                values=('', row['name'], ''))
+                
+    def _deck_list_dbl_click(self, event):
+        #Load the deck for the tracker
+        sel = self._deck_tree.selection()
+        if len(sel) > 0:
+            item = self._deck_tree.selection()[0]
+            self._deck_treeview.deck = load_deck_from_sql(self.cursor, item)
+            self._deck_treeview.reset_view()
+            self.active_deck = item
+        return
+    
     def _deck_del(self):
-        pass
+        sel = self._deck_tree.selection()
+        if len(sel) > 0:
+            item = self._deck_tree.selection()[0]
+            result = tk.messagebox.askyesno("Delete Deck?","Are you sure you want to delete?")
+            if result is True:
+                self.cursor.execute(sql_delete_deck, (item,))
+                self._refresh_deck_list()
+                return
+            else:
+                return
+    def _deck_edit(self):
+        sel = self._deck_tree.selection()
+        if len(sel) > 0:
+            item = self._deck_tree.selection()[0]
+            win = tk.Toplevel(takefocus=True)
+            dc = DeckCreator(self.cursor, master=win)
+            dc.update_deck = True
+            dc.deck_id = item
+            dc._deck_treeview.deck = load_deck_from_sql(self.cursor, item)
+            dc._hero_class_list.get(0)
+            dc._hero_class_list.selection_set
+            dc._deck_treeview.reset_view()
+            self.wait_window(win)
+            dc.update_deck = False
+            dc.deck_id = None
+            self.db.commit()
+            #Refresh deck list
+            self._refresh_deck_list()
+        return
+
 root = tk.Tk()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
