@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 from tkinter import scrolledtext
+from tkinter import font
 #Functional imports
 import ssl
 import urllib.request
@@ -54,6 +55,11 @@ sql_insert_card = "INSERT INTO card_played (matchid, cardid, turn, local) VALUES
 def card_from_row(row):
     return Card(row['id'], row['name'], row['rarity'], 
     row['cost'], row['attack'], row['health'])
+   
+def card_from_id(id, cursor):
+    results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
+    row = results.fetchone()
+    return card_from_row(row)
 
 def load_deck_from_sql(cursor, id):
     sql_str = sql_select_cards_from_deck.format('deck_'+str(id))
@@ -62,7 +68,7 @@ def load_deck_from_sql(cursor, id):
     for row in rows:
         tmp = cursor.execute(sql_select_card_by_id, (row['card'],)).fetchone()
         card = card_from_row(tmp)
-        deck[card.id] = (card, row['num'])
+        deck[card.id] = [card, int(row['num'])]
     return deck
     
     
@@ -77,135 +83,281 @@ def save_deck_to_sql(cursor, deck, table):
         else:
             cursor.execute(update_str, (card[1],'%' + card[0].id +'%'))
             print('Updated ' + card[0].id + 'to ' + str(card[1]))
+            
+import copy
+
+class DeckCanvas(tk.Canvas):
+    def __init__(self, master=None, **kwargs):
+        tk.Canvas.__init__(self, master, **kwargs)
+        
+        # Interactivity
+        self.bind("<Button-1>", self._left_click)
+        self.bind("<Button-3>", self._right_click)
+        self.card_clicked = []
+        # Deck options
+        self.editable = False
+        self.static_deck = {}
+        self.active_deck = {}
+        self.rarity_to_color = {
+            'FREE'      : '#b7c3d2',
+            'COMMON'    : '#b7c3d2',
+            'RARE'      : '#608bbf',
+            'EPIC'      : '#ab60bf',
+            'LEGENDARY' : '#bf9b60'
+        }
+        self.drawn_card_color = '#BBFF8B'
+        # Load legendary star
+        self.star_image = tk.PhotoImage(file='./star.gif')
+        self.tmp = ttk.Label(self, image=self.star_image)
+        
+        # GUI options TODO: Move to configuration file
+        self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
+        self.font = tk.font.Font(family='Helvetica', size=12, weight='bold')
+        
+        # Given in percentage of the width
+        self.name_text_offset_x = 5
+        self.cost_text_offset_x = 0
+        self.cost_plate_size = 0.12
+        self.cost_plate_top_pad = 1
+        self.cost_plate_bot_pad = 1
+        self.num_text_offset_x = 0
+        self.num_plate_size = 0.88
+        self.num_plate_top_pad = 1
+        self.num_plate_bot_pad  = 1
+        self.max_label_size = 30
+        
+    def reset_tracking(self):
+        self.active_deck = copy.deepcopy(self.static_deck)
+        self.refresh_canvas()
+    
+    def set_deck(self, deck):
+        self.static_deck = copy.deepcopy(deck)
+        self.active_deck = copy.deepcopy(deck)
+        self.refresh_canvas()
+        
+    def bind_card_clicked(self, func):
+        self.card_clicked.append(func)
+        
+    def unbind_card_clicked(self, func):
+        self.card_clicked.remove(func)
+        
+    def _left_click(self, event):
+        if self.editable is True:
+            item = self.find_closest(event.x, event.y, halo=None, start=None)
+            if item:
+                tags = self.gettags(item)
+                if tags:
+                    for func in self.card_clicked:
+                        func(tags[0])
+        else:
+            return
+            
+    def _right_click(self, event):
+        if self.editable is True:
+            pass
+        else:
+            return
+
+    # These functions are meant to support deck building
+    def add_card(self, card):
+        # This function expects a Card namedtuple
+        if self.editable is True:
+            #pdb.set_trace()
+            if card.id in self.static_deck:
+                # Check if legendary
+                if card.rarity == 'LEGENDARY':
+                    return
+                else:
+                    # Check to see if we have  two copies already
+                    deck_card = self.static_deck[card.id]
+                    if int(deck_card[1]) > 1:
+                        return
+                    else:
+                        # If not add one
+                        deck_card[1] =  int(deck_card[1]) + 1
+            else:
+                # Add the card to the deck
+                self.static_deck[card.id] = [copy.deepcopy(card), 1]
+            # Copy the deck over
+            self.active_deck = copy.deepcopy(self.static_deck)
+            # Redraw
+            self.refresh_canvas()
+        else:
+            return
+        
+    def remove_card(self, card):
+        if self.editable is True:
+            if card.id in self.static_deck:
+                # Check to see if we have  two copies already
+                deck_card = self.static_deck[card.id]
+                if int(deck_card[1]) > 1:
+                    deck_card[1] =  int(deck_card[1]) - 1
+                else:
+                    # Delete the last one
+                    del self.static_deck[card.id]
+            else:
+                return
+            # Copy the deck over
+            self.active_deck = copy.deepcopy(self.static_deck)
+            # Redraw
+            print(self.active_deck)
+            self.refresh_canvas()
+        else:
+            return
+    
+    # These functions are an interface for tracking
+    def card_drawn(self, card_id):
+        if card_id in self.active_deck:
+            self.active_deck[card_id][1] -= 1
+            items = self.find_withtag(card_id)
+            if items:
+                # Find the card text
+                for item in items:
+                    tags = self.gettags(item)
+                    if 'card_name' in tags:
+                        self.itemconfigure(item, fill=self.drawn_card_color)
+                    if 'num_text' in tags:
+                        self.itemconfigure(item, 
+                        text=str(self.active_deck[card_id][1]))
+        
+    def card_shuffled(self, card_id):
+        if card_id in self.active_deck:
+            self.active_deck[card_id][1] += 1
+            items = self.find_withtag(card_id)
+            if items:
+                # Find the card text
+                for item in items:
+                    tags = self.gettags(item)
+                    if 'card_name' in tags:
+                        self.itemconfigure(item, fill='white')
+                    if 'num_text' in tags:
+                        self.itemconfigure(item, 
+                        text=str(self.active_deck[card_id][1]))
+        
+    def card_played(self, card_id):
+        items = self.find_withtag(card_id)
+        if items:
+            # Find the card text
+            for item in items:
+                tags = self.gettags(item)
+                if 'frame_plate' in tags:
+                    self.itemconfigure(item, fill='grey25')
+        
+    def refresh_canvas(self):
+        # This is where the magic happens
+        height = self.winfo_reqheight()
+        width = self.winfo_reqwidth()
+        num_cards = len(self.active_deck)
+        if num_cards < 1:
+            self.delete(tk.ALL)
+            return
+        frame_height = min(int(height/num_cards), 30)
+        # Get the cards in the correct order
+        cards_sorted = sorted(self.active_deck.values(), 
+                            key = lambda x: (x[0].cost, x[0].name, x[1]))
+        # For now we will clear and completely redraw
+        self.delete(tk.ALL)
+        print(cards_sorted)
+        # Start redrawing
+        for i, card in enumerate(cards_sorted):
+            # Debug coordinates
+            print('x1 : {0}, y1 : {1}, x2 : {2}, y2 : {3}'.format(
+                0, (i)*frame_height, width, (i+1)*frame_height,
+            ))
+            # Draw the back plate
+            x0 = 0
+            y0 = (i)*frame_height
+            x1 = width
+            y1 = (i+1)*frame_height
+            self.create_rectangle(x0, y0, x1, y1,
+                                    fill="grey", width=2, tags=(card[0].id, 'frame_plate'))
+            # Draw cost rectangle
+            cost_plate_x1 = (width * self.cost_plate_size)
+            self.create_rectangle(x0, y0+self.cost_plate_top_pad, 
+                        cost_plate_x1,  y1-self.cost_plate_bot_pad,
+                        fill=self.rarity_to_color[card[0].rarity], 
+                        width=0, tags=(card[0].id))
+            
+            self.create_line(cost_plate_x1, y0+self.cost_plate_top_pad, 
+                        cost_plate_x1,  y1-self.cost_plate_bot_pad,)
+                        
+            # Draw cost text
+            cost_text_x = int(self.cost_plate_size/2 * width)  + self.cost_text_offset_x
+            cost_text_y = (y0+y1)/2 # The center of the plate
+            self.create_text(cost_text_x, cost_text_y, 
+                                text=str(card[0].cost),
+                                fill= 'white', anchor=tk.CENTER, font=self.font,
+                                tags=(card[0].id, 'cost_text'))
+            # Draw the card name
+            name_text_x = cost_plate_x1 + self.name_text_offset_x
+            name_text_y = (y0+y1)/2 # The center of the plate
+            self.create_text(name_text_x, name_text_y, text=card[0].name,
+                                fill= 'white', anchor=tk.W, font=self.font,
+                                tags=(card[0].id, 'card_name'))
+            
+            # Draw num  rectangle
+            num_plate_x1 = (width * self.num_plate_size)
+            self.create_rectangle(num_plate_x1, y0+self.cost_plate_top_pad, 
+                        width,  y1-self.cost_plate_bot_pad,
+                        fill='grey25', 
+                        width=0, tags=(card[0].id))
+            
+            self.create_line(num_plate_x1, y0+self.cost_plate_top_pad, 
+                        num_plate_x1,  y1-self.cost_plate_bot_pad,)
+                        
+            # Draw num text
+            if card[0].rarity != 'LEGENDARY':
+                num_text_x = int((self.num_plate_size * width + width)/2)  + self.num_text_offset_x
+                num_text_y = (y0+y1)/2 # The center of the plate
+                self.create_text(num_text_x, num_text_y, 
+                                    text=str(card[1]),
+                                    fill= 'gold', anchor=tk.CENTER, font=self.font,
+                                    tags=(card[0].id, 'num_text'))
+            else:
+                num_text_x = int((self.num_plate_size * width + width)/2)  + self.num_text_offset_x
+                num_text_y = (y0+y1)/2 # The center of the plate
+                self.create_image(num_text_x, num_text_y,
+                image=self.star_image,
+                tags= (card[0].id,))
         
 class HeroClassListbox(tk.Listbox):
         def __init__(self, master, *args, **kwargs):
             tk.Listbox.__init__(self, master,  height=9)
             vals = list(hs.hero_dict.values())
             for v in vals:
-                self.insert(tk.END, v)         
-# A deck will just be a dictionary with the value being 
-class DeckTreeview(ttk.Treeview):
-    def __init__(self, master, cursor, *args, **kwargs):
-        ttk.Treeview.__init__(self, master, 
-                            columns=('cost', 'name', 'num'), 
-                            displaycolumns=('cost name num'),
-                            show = 'headings')
+                self.insert(tk.END, v)
+                
+                
+class DeckBuilderCardEntry(ttk.Entry):
+    """ Requires a working database cursor to work """
+    def __init__(self, parent, cursor, deckcanvas, **kwargs):
+        ttk.Entry.__init__(self, parent, **kwargs)
+        self.var = self['textvariable']
+        self.parent = parent
         self.cursor = cursor
-        self.column("name", width=150)
-        self.column("num", width=15)
-        self.column("cost", width=15)
-        self.heading("name", text="Name")
-        self.heading("num", text="#")
-        self.heading("cost", text='Cost')
-        self.bind("<Double-1>", self._on_double_click)
-        self.tag_configure('common', background='gray')
-        self.tag_configure('played', background='dim gray')
-        self.tag_configure('drawn', foreground = 'OliveDrab4')
-        self.tag_configure('rare', background='blue')
-        self.tag_configure('epic', background='purple')
-        self.tag_configure('legend', background='goldenrod')
-        self.enable_building = True
-        #self.reset_view()
-        self.deck = {}
-    
-    def set_deck(self, deck):
-        self.reset_view()
-        
-    def _on_double_click(self, event):
-        if self.enable_building == True:
-            sel = self.selection()
-            if len(sel) > 0:
-                item = self.selection()[0]
-                self.remove_card(item)
-        
-    def add_card(self, card):
-        if card not in self.deck:
-            c = self.cursor.execute(sql_select_card_by_id, ('%' + card +'%',)).fetchone()
-            if c is not None:
-                cc = card_from_row(c)
-                self.deck[card] = [cc, 1]
-                #Update display
-                self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
-                return
-        else:
-            cc = self.deck[card][0]
-            n = self.deck[card][1]
-            if n < 2:
-                self.deck[card][1] += 1
-                self.item(cc.id, values=(cc.cost, cc.name, '2'))
-                return
-        return
-        
-    def remove_card(self, card):
-        if card in self.deck:
-            cc = self.deck[card][0]
-            n = self.deck[card][1]
-            if n > 1:
-                self.deck[card][1] -= 1
-                self.item(cc.id, values=(cc.cost, cc.name, '1'))
-            else:
-                self.delete(card)
-        
-    def card_played(self, card):
-        if card in self.deck:
-            if self.tag_has('played', card) is 1:
-                values = self.item(card, 'values')
-                self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
-                return
-            else:
-                tags = self.item(card, 'tags')
-                tags= [tags, 'played']
-                self.item(card, tags=tags)
-                values = self.item(card, 'values')
-                self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
-                return
-        
-    def card_drawn(self, card):
-        if card in self.deck:
-            if self.tag_has('drawn', card) is 1:
-                return
-            else:
-                tags = self.item(card, 'tags')
-                tags= [tags, 'drawn']
-                self.item(card, tags=tags)
-                return
-            
-    def card_shuffled(self, card):
-        if card in self.deck:
-            print(card)
-            print(self.tag_has('drawn', card))
-            if self.tag_has('drawn', card) is 1:
-                print(card + 'was drawn')
-                tags = self.item(card, 'tags')
-                print(tags)
-                new_tags = []
-                for tag in tags:
-                    if tag == 'drawn':
-                        continue
-                    else:
-                        new_tags.append(tag)
-                print(new_tags)
-                self.item(card, tags=new_tags)
-                return
-            else:
-                return
-        
-    def reset_view(self):
-        self.delete(*self.get_children())
-        c_sorted = sorted(self.deck.values(), key = lambda x: (x[0].cost, x[0].name, x[1]))
-        for val in c_sorted:
-            card = val[0]
-            n = val[1]
-            self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
-            self.item(card.id, tags='')
-        
-    def get_num_cards(self):
-        i = 0
-        for v in self.deck.values():
-            i += v[1]
-        return i
+        self.deckcanvas = deckcanvas
+        if self.var == '':
+            self.var = self['textvariable'] = tk.StringVar()
 
+        self.var.trace('w', self.changed)
+
+    def changed(self, name, index, mode):  
+        words = self.comparison()
+        deck = {}
+        if words:
+            for word in words:
+                deck[word['id']] = [card_from_row(word), 1]
+            self.deckcanvas.set_deck(deck)
+        else:
+            self.deckcanvas.set_deck({})
+                
+
+    def comparison(self):
+        search = '%'+self.var.get()+'%'
+        results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
+        rows = results.fetchmany(20)
+        return rows
+                                
 class DeckCreator(ttk.Frame):
     def __init__(self, cursor, master=None):
         # Initialize
@@ -216,29 +368,46 @@ class DeckCreator(ttk.Frame):
         self._create_widgets()
         self.update_deck = False
         self.deck_id = None
-
+        
     def _create_widgets(self):
-        frame = ttk.Label(self, text='Select a class:')
-        frame.pack(fill=tk.X, expand=0)
-        self._hero_class_list = HeroClassListbox(self)
+        pw = ttk.PanedWindow(self, width= 1080, height = 800, orient=tk.HORIZONTAL)
+        pw.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
+        pw.columnconfigure(0, weight=1)
+        pw.rowconfigure(0, weight=1)
+        f1 = ttk.Frame(pw, width = 400, height = 600, relief='sunken')
+        f2 = ttk.Frame(pw, width = 400)
+        #f1.rowconfigure(1, weight=1)
+        self._entry_canvas = DeckCanvas(f1, width = 500, height = 500)
+        self._static_canvas = DeckCanvas(f2, width = 500, height = 500)
+        self._entry_canvas.editable = True
+        self._static_canvas.editable = True
+        self._entry_canvas.bind_card_clicked(self.add_card)
+        self._static_canvas.bind_card_clicked(self.remove_card)
+        self._card_entry = DeckBuilderCardEntry(f1, self.cursor, self._entry_canvas)
+        ttk.Label(f1, text='Enter Card Name:').pack(fill=tk.X, expand=0)
+        self._card_entry.pack(fill=tk.X, expand = tk.FALSE)
+        self._entry_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self._static_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
+        
+        ttk.Label(f2, text='Select a class:').pack(fill=tk.X, expand=0)
+        self._deck_name_entry = ttk.Entry(f2)
+        self._hero_class_list = HeroClassListbox(f2)
         self._hero_class_list.pack(fill=tk.X, expand=0)
-        frame = ttk.Label(self, text='Enter Card Name:')
-        frame.pack(fill=tk.X, expand=0)
-        self._card_entry = hs.AutocompleteCardEntry(self, self.cursor)
-        self._card_entry.pack(fill=tk.X, expand=0)
-        self._card_entry.bind_card_cb(self._card_picked)
-        self._deck_treeview = DeckTreeview(self, self.cursor)
-        self._deck_treeview.pack(fill=tk.BOTH, expand=1)
-        frame = ttk.Label(self, text='Enter Deck Name:')
-        frame.pack(fill=tk.X, expand=0)
-        self._deck_name_entry = ttk.Entry(self)
+        ttk.Label(f2, text='Enter Deck Name:').pack(fill=tk.X, expand=0)
         self._deck_name_entry.pack(fill=tk.X, expand=0)
-        self._save_deck_btn = ttk.Button(self, text = 'Save', command= self._btn_save)
+        self._save_deck_btn = ttk.Button(f2, text = 'Save', command= self._btn_save)
         self._save_deck_btn.pack(fill=tk.X, expand=0)
-    
+        pw.add(f1)
+        pw.add(f2)
+        
     def _btn_save(self):
-        if self._deck_treeview.get_num_cards() > 30:
+        print(self._static_canvas.static_deck)
+        print(len(self._static_canvas.static_deck))
+        if len(self._static_canvas.static_deck) > 30:
             print('Too many cards')
+            return
+        elif len(self._static_canvas.static_deck) < 1:
+            print('Too few cards')
             return
         elif self._deck_name_entry.get() == '' and self.update_deck is False:
             print('No name given')
@@ -248,7 +417,7 @@ class DeckCreator(ttk.Frame):
             return
         elif self.update_deck is True:
             table_name = 'deck_' + str(self.deck_id)
-            save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+            save_deck_to_sql(self.cursor, self._deck_treeview.static_deck, table_name)
             return
         else:
             # Write to db
@@ -265,15 +434,211 @@ class DeckCreator(ttk.Frame):
                 deckid = self.cursor.lastrowid
                 table_name = 'deck_' + str(deckid)
                 self.cursor.execute(sql_create_deck.format(table_name))
-                save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+                save_deck_to_sql(self.cursor, self._static_canvas.static_deck, table_name)
                 return
+    
+    def add_card(self, card_id):
+        results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
+        row = results.fetchone()
+        card = card_from_row(row)
+        self._static_canvas.add_card(card)
+
+    def remove_card(self, card_id):
+        results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
+        row = results.fetchone()
+        card = card_from_row(row)
+        self._static_canvas.remove_card(card)
+
+# # A deck will just be a dictionary with the value being 
+# class DeckTreeview(ttk.Treeview):
+#     def __init__(self, master, cursor, *args, **kwargs):
+#         ttk.Treeview.__init__(self, master, 
+#                             columns=('cost', 'name', 'num'), 
+#                             displaycolumns=('cost name num'),
+#                             show = 'headings')
+#         self.cursor = cursor
+#         self.column("name", width=150)
+#         self.column("num", width=15)
+#         self.column("cost", width=15)
+#         self.heading("name", text="Name")
+#         self.heading("num", text="#")
+#         self.heading("cost", text='Cost')
+#         self.bind("<Double-1>", self._on_double_click)
+#         self.tag_configure('common', background='gray')
+#         self.tag_configure('played', background='dim gray')
+#         self.tag_configure('drawn', foreground = 'OliveDrab4')
+#         self.tag_configure('rare', background='blue')
+#         self.tag_configure('epic', background='purple')
+#         self.tag_configure('legend', background='goldenrod')
+#         self.enable_building = True
+#         #self.reset_view()
+#         self.deck = {}
+    
+#     def set_deck(self, deck):
+#         self.reset_view()
         
-    def _card_picked(self, card):
-        cards = self.cursor.execute(sql_select_card_by_name, ('%' + card +'%',)).fetchall()
-        if cards is not None:
-            for c in cards:
-                if c['name'] == card:
-                    self._deck_treeview.add_card(c['id'])
+#     def _on_double_click(self, event):
+#         if self.enable_building == True:
+#             sel = self.selection()
+#             if len(sel) > 0:
+#                 item = self.selection()[0]
+#                 self.remove_card(item)
+        
+#     def add_card(self, card):
+#         if card not in self.deck:
+#             c = self.cursor.execute(sql_select_card_by_id, ('%' + card +'%',)).fetchone()
+#             if c is not None:
+#                 cc = card_from_row(c)
+#                 self.deck[card] = [cc, 1]
+#                 #Update display
+#                 self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
+#                 return
+#         else:
+#             cc = self.deck[card][0]
+#             n = self.deck[card][1]
+#             if n < 2:
+#                 self.deck[card][1] += 1
+#                 self.item(cc.id, values=(cc.cost, cc.name, '2'))
+#                 return
+#         return
+        
+#     def remove_card(self, card):
+#         if card in self.deck:
+#             cc = self.deck[card][0]
+#             n = self.deck[card][1]
+#             if n > 1:
+#                 self.deck[card][1] -= 1
+#                 self.item(cc.id, values=(cc.cost, cc.name, '1'))
+#             else:
+#                 self.delete(card)
+        
+#     def card_played(self, card):
+#         if card in self.deck:
+#             if self.tag_has('played', card) is 1:
+#                 values = self.item(card, 'values')
+#                 self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
+#                 return
+#             else:
+#                 tags = self.item(card, 'tags')
+#                 tags= [tags, 'played']
+#                 self.item(card, tags=tags)
+#                 values = self.item(card, 'values')
+#                 self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
+#                 return
+        
+#     def card_drawn(self, card):
+#         if card in self.deck:
+#             if self.tag_has('drawn', card) is 1:
+#                 return
+#             else:
+#                 tags = self.item(card, 'tags')
+#                 tags= [tags, 'drawn']
+#                 self.item(card, tags=tags)
+#                 return
+            
+#     def card_shuffled(self, card):
+#         if card in self.deck:
+#             print(card)
+#             print(self.tag_has('drawn', card))
+#             if self.tag_has('drawn', card) is 1:
+#                 print(card + 'was drawn')
+#                 tags = self.item(card, 'tags')
+#                 print(tags)
+#                 new_tags = []
+#                 for tag in tags:
+#                     if tag == 'drawn':
+#                         continue
+#                     else:
+#                         new_tags.append(tag)
+#                 print(new_tags)
+#                 self.item(card, tags=new_tags)
+#                 return
+#             else:
+#                 return
+        
+#     def reset_view(self):
+#         self.delete(*self.get_children())
+#         c_sorted = sorted(self.deck.values(), key = lambda x: (x[0].cost, x[0].name, x[1]))
+#         for val in c_sorted:
+#             card = val[0]
+#             n = val[1]
+#             self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
+#             self.item(card.id, tags='')
+        
+#     def get_num_cards(self):
+#         i = 0
+#         for v in self.deck.values():
+#             i += v[1]
+#         return i
+
+# class DeckCreator(ttk.Frame):
+#     def __init__(self, cursor, master=None):
+#         # Initialize
+#         ttk.Frame.__init__(self, master, width= 800, height = 600)
+#         self.pack(fill=tk.BOTH, expand=1)
+#         self.cursor = cursor
+#         self.master = master
+#         self._create_widgets()
+#         self.update_deck = False
+#         self.deck_id = None
+
+#     def _create_widgets(self):
+#         frame = ttk.Label(self, text='Select a class:')
+#         frame.pack(fill=tk.X, expand=0)
+#         self._hero_class_list = HeroClassListbox(self)
+#         self._hero_class_list.pack(fill=tk.X, expand=0)
+#         frame = ttk.Label(self, text='Enter Card Name:')
+#         frame.pack(fill=tk.X, expand=0)
+#         self._card_entry = hs.AutocompleteCardEntry(self, self.cursor)
+#         self._card_entry.pack(fill=tk.X, expand=0)
+#         self._card_entry.bind_card_cb(self._card_picked)
+#         self._deck_treeview = DeckTreeview(self, self.cursor)
+#         self._deck_treeview.pack(fill=tk.BOTH, expand=1)
+#         frame = ttk.Label(self, text='Enter Deck Name:')
+#         frame.pack(fill=tk.X, expand=0)
+#         self._deck_name_entry = ttk.Entry(self)
+#         self._deck_name_entry.pack(fill=tk.X, expand=0)
+#         self._save_deck_btn = ttk.Button(self, text = 'Save', command= self._btn_save)
+#         self._save_deck_btn.pack(fill=tk.X, expand=0)
+    
+#     def _btn_save(self):
+#         if self._deck_treeview.get_num_cards() > 30:
+#             print('Too many cards')
+#             return
+#         elif self._deck_name_entry.get() == '' and self.update_deck is False:
+#             print('No name given')
+#             return
+#         elif len(self._hero_class_list.curselection()) < 1 and self.update_deck is False:
+#             print('No class selected')
+#             return
+#         elif self.update_deck is True:
+#             table_name = 'deck_' + str(self.deck_id)
+#             save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+#             return
+#         else:
+#             # Write to db
+#             item = self._hero_class_list.curselection()[0]
+#             herostr = self._hero_class_list.get(item)
+#             heronum = hs.hero_dict_names[herostr]
+#             deck = self.cursor.execute(sql_select_deck_by_name, 
+#                         ('%' + self._deck_name_entry.get() +'%',)).fetchone()
+#             if deck is not None:
+#                 print('Deck with that name already exists')
+#                 return
+#             else:
+#                 self.cursor.execute(sql_insert_deck, (self._deck_name_entry.get(),heronum))
+#                 deckid = self.cursor.lastrowid
+#                 table_name = 'deck_' + str(deckid)
+#                 self.cursor.execute(sql_create_deck.format(table_name))
+#                 save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
+#                 return
+        
+#     def _card_picked(self, card):
+#         cards = self.cursor.execute(sql_select_card_by_name, ('%' + card +'%',)).fetchall()
+#         if cards is not None:
+#             for c in cards:
+#                 if c['name'] == card:
+#                     self._deck_treeview.add_card(c['id'])
 
 class Application(ttk.Frame):
     def __init__(self, master=None):
@@ -333,7 +698,7 @@ class Application(ttk.Frame):
         pass
         
     def _create_notebook(self):
-        self._notebook = ttk.Notebook(master=self, height=600, width=800)
+        self._notebook = ttk.Notebook(master=self, height=800, width=1200)
         self._deck_frame = ttk.Frame(self._notebook)
         self._stats_frame = ttk.Frame(self._notebook)
         self._data_frame = ttk.Frame(self._notebook)
@@ -403,17 +768,24 @@ class Application(ttk.Frame):
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
         pw2 = ttk.PanedWindow(f2, orient=tk.HORIZONTAL)
         pw2.pack(fill=tk.BOTH, expand=1)
-        self._deck_treeview = DeckTreeview(pw2, self.cursor)
-        self._deck_treeview.enable_building = False
+        # window = tk.Toplevel()
+        # window.lift()
+        # window.attributes("-topmost", True)
+        # window.attributes("-alpha", 0.50)
+        # window.overrideredirect(1) #Remove border
+        #window.call('wm', 'attributes', '.', '-topmost', '1')
+        self._deck_treeview = DeckCanvas(pw2, width=400, height= 800)
+        self._deck_treeview.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self._deck_treeview.editable = False
         #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
-        self._oppon_deck_treeview = DeckTreeview(pw2, self.cursor)
-        self._oppon_deck_treeview.enable_building = False
+        self._oppon_deck_treeview = DeckCanvas(pw2, width=400, height= 800)
+        self._oppon_deck_treeview.editable = False
         # self._deck_treeview.add_card('BRM_002')
         # self._deck_treeview.card_drawn('BRM_002')
         # self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
-        pw2.add(self._deck_treeview)
+        #pw2.add(self._deck_treeview)
         pw2.add(self._oppon_deck_treeview)
     
     def _init_database(self):
@@ -459,7 +831,7 @@ class Application(ttk.Frame):
                 self._debug_text.insert(tk.END, 
                 'The foreign player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
                 (None,))
-                self._oppon_deck_treeview.add_card(data.cardId)
+                self._oppon_deck_treeview.add_card(card_from_id(data.cardId, self.cursor))
             self._debug_text.see(tk.END)
             self.cards_played.append(data)
             return
@@ -480,7 +852,7 @@ class Application(ttk.Frame):
             'The game just ended\n', 
             (None,))
             self._write_game(data)
-            self._deck_treeview.reset_view()
+            self._deck_treeview.reset_tracking()
             return
         elif etype == hs.EventType.GameStart:
             self.players = data.players
@@ -542,8 +914,7 @@ class Application(ttk.Frame):
 
     def _reset_game_state(self):
         self.cards_played = []
-        self._oppon_deck_treeview.deck = {}
-        self._oppon_deck_treeview.reset_view()
+        self._oppon_deck_treeview.set_deck({})
         self.players = None
         
     def _refresh_deck_list(self):
@@ -559,8 +930,7 @@ class Application(ttk.Frame):
         sel = self._deck_tree.selection()
         if len(sel) > 0:
             item = self._deck_tree.selection()[0]
-            self._deck_treeview.deck = load_deck_from_sql(self.cursor, item)
-            self._deck_treeview.reset_view()
+            self._deck_treeview.set_deck(load_deck_from_sql(self.cursor, item))
             self.active_deck = item
         return
     
