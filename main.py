@@ -768,13 +768,13 @@ class Application(ttk.Frame):
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
         pw2 = ttk.PanedWindow(f2, orient=tk.HORIZONTAL)
         pw2.pack(fill=tk.BOTH, expand=1)
-        # window = tk.Toplevel()
-        # window.lift()
-        # window.attributes("-topmost", True)
-        # window.attributes("-alpha", 0.50)
-        # window.overrideredirect(1) #Remove border
+        window = tk.Toplevel()
+        window.lift()
+        window.attributes("-topmost", True)
+        window.attributes("-alpha", 0.90)
+        #window.overrideredirect(1) #Remove border
         #window.call('wm', 'attributes', '.', '-topmost', '1')
-        self._deck_treeview = DeckCanvas(pw2, width=400, height= 800)
+        self._deck_treeview = DeckCanvas(window, width=400, height= 800)
         self._deck_treeview.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_treeview.editable = False
         #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
