@@ -193,7 +193,8 @@ class DeckTreeview(ttk.Treeview):
         
     def reset_view(self):
         self.delete(*self.get_children())
-        for val in self.deck.values():
+        c_sorted = sorted(self.deck.values(), key = lambda x: (x[0].cost, x[0].name, x[1]))
+        for val in c_sorted:
             card = val[0]
             n = val[1]
             self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
