@@ -48,9 +48,9 @@ sql_find_opponent = 'SELECT id from player WHERE high = ? AND low = ?'
 sql_insert_opponent = 'INSERT INTO player (name, high, low) VALUES(?,?,?)'
 sql_select_hero_by_name = 'SELECT id FROM hero WHERE name like ?'
 sql_insert_match = """INSERT INTO match 
-(opponent, first, won, duration, date, opp_hero, player_hero, deck)
-VALUES (?,?,?,?,?,?,?,?)"""
-sql_insert_card = "INSERT INTO card_played (cardid, turn, local) VALUES(?,?,?)"
+(opponent, first, won, duration, num_turns, date, opp_hero, player_hero, deck)
+VALUES (?,?,?,?,?,?,?,?,?)"""
+sql_insert_card = "INSERT INTO card_played (matchid, cardid, turn, local) VALUES(?,?,?,?)"
 def card_from_row(row):
     return Card(row['id'], row['name'], row['rarity'], 
     row['cost'], row['attack'], row['health'])
@@ -101,7 +101,7 @@ class DeckTreeview(ttk.Treeview):
         self.bind("<Double-1>", self._on_double_click)
         self.tag_configure('common', background='gray')
         self.tag_configure('played', background='dim gray')
-        self.tag_configure('drawn', foreground = 'OliveDrab1')
+        self.tag_configure('drawn', foreground = 'OliveDrab4')
         self.tag_configure('rare', background='blue')
         self.tag_configure('epic', background='purple')
         self.tag_configure('legend', background='goldenrod')
@@ -149,25 +149,47 @@ class DeckTreeview(ttk.Treeview):
         
     def card_played(self, card):
         if card in self.deck:
-            tags = self.item(card, 'tags')
-            if tags is '':
-                tags = ('played',)
+            if self.tag_has('played', card) is 1:
+                values = self.item(card, 'values')
+                self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
+                return
             else:
+                tags = self.item(card, 'tags')
                 tags= [tags, 'played']
-            self.item(card, tags=tags)
-            values = self.item(card, 'values')
-            self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
+                self.item(card, tags=tags)
+                values = self.item(card, 'values')
+                self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
+                return
         
     def card_drawn(self, card):
         if card in self.deck:
-            tags = self.item(card, 'tags')
-            print(tags)
-            if tags is '':
-                tags = ('drawn',)
+            if self.tag_has('drawn', card) is 1:
+                return
             else:
+                tags = self.item(card, 'tags')
                 tags= [tags, 'drawn']
-            self.item(card, tags=tags)
-            self.item(card, tags=('drawn',))
+                self.item(card, tags=tags)
+                return
+            
+    def card_shuffled(self, card):
+        if card in self.deck:
+            print(card)
+            print(self.tag_has('drawn', card))
+            if self.tag_has('drawn', card) is 1:
+                print(card + 'was drawn')
+                tags = self.item(card, 'tags')
+                print(tags)
+                new_tags = []
+                for tag in tags:
+                    if tag == 'drawn':
+                        continue
+                    else:
+                        new_tags.append(tag)
+                print(new_tags)
+                self.item(card, tags=new_tags)
+                return
+            else:
+                return
         
     def reset_view(self):
         self.delete(*self.get_children())
@@ -175,7 +197,7 @@ class DeckTreeview(ttk.Treeview):
             card = val[0]
             n = val[1]
             self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
-            self.item(card.id, tags=(None,))
+            self.item(card.id, tags='')
         
     def get_num_cards(self):
         i = 0
@@ -280,6 +302,7 @@ class Application(ttk.Frame):
         self._update_gui()
         self._refresh_deck_list()
         self._reset_game_state()
+        self.active_deck = None
         
     def on_close(self):
         self._end_tracking_thread()
@@ -377,13 +400,20 @@ class Application(ttk.Frame):
         self._deck_tree.heading("name", text="Name")
         self._deck_tree.heading("tags", text="Tags")
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
-        self._deck_treeview = DeckTreeview(f2, self.cursor)
-        self._deck_treeview.pack(fill=tk.BOTH, expand=1)
+        pw2 = ttk.PanedWindow(f2, orient=tk.HORIZONTAL)
+        pw2.pack(fill=tk.BOTH, expand=1)
+        self._deck_treeview = DeckTreeview(pw2, self.cursor)
+        self._deck_treeview.enable_building = False
+        #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
+        self._oppon_deck_treeview = DeckTreeview(pw2, self.cursor)
+        self._oppon_deck_treeview.enable_building = False
         # self._deck_treeview.add_card('BRM_002')
         # self._deck_treeview.card_drawn('BRM_002')
         # self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
+        pw2.add(self._deck_treeview)
+        pw2.add(self._oppon_deck_treeview)
     
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
@@ -423,10 +453,12 @@ class Application(ttk.Frame):
                 self._debug_text.insert(tk.END, 
                 'The local player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
                 (None,))
+                self._deck_treeview.card_played(data.cardId)
             else:
                 self._debug_text.insert(tk.END, 
                 'The foreign player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
                 (None,))
+                self._oppon_deck_treeview.add_card(data.cardId)
             self._debug_text.see(tk.END)
             self.cards_played.append(data)
             return
@@ -434,6 +466,13 @@ class Application(ttk.Frame):
             self._debug_text.insert(tk.END, 
             'The local player just drew {0} on turn {1}\n'.format(data.cardId, data.turn), 
             (None,))
+            self._deck_treeview.card_drawn(data.cardId)
+            return
+        elif etype == hs.EventType.CardShuffled:
+            self._debug_text.insert(tk.END, 
+            'The local player just shuffled {0}\n'.format(data.cardId), 
+            (None,))
+            self._deck_treeview.card_shuffled(data.cardId)
             return
         elif etype == hs.EventType.GameEnd:
             self._debug_text.insert(tk.END, 
@@ -471,32 +510,39 @@ class Application(ttk.Frame):
         if oppid is None:
             self.cursor.execute(sql_insert_opponent, (foreign.name,foreign.high, foreign.low))
             oppid = self.cursor.lastrowid
-        #We now have the player id, so we can write the match information
-        # First we need to get the correct hero information
-        local_hero = self.cursor.execute(sql_select_hero_by_name, 
-                        ('%' + local.hero_name + '%',)).fetchone()
-        foreign_hero = self.cursor.execute(sql_select_hero_by_name, 
-                        ('%' + foreign.hero_name + '%',)).fetchone()
-        # submit the data                
-        date = datetime.datetime.now()
-        
-        sql_data = (oppid, gameoutcome.first, gameoutcome.won, gameoutcome.duration,
-        date, foreign_hero['id'], local_hero['id'], self.active_deck)
-        self.cursor.execute(sql_insert_match, sql_data)
-        matchid = self.cursor.lastrowid
-        
-        #submit the cards
-        for card in self.cards_played:
-            local_player = False
-            if card.player == local.id:
-                local_player = True
-            self.cursor.execute(sql_insert_card, (card.cardId, card.turn, local_player))
+        else:
+            oppid = oppid['id']
+        if self.active_deck is not None:
+            #We now have the player id, so we can write the match information
+            # First we need to get the correct hero information
+            local_hero = self.cursor.execute(sql_select_hero_by_name, 
+                            ('%' + local.hero_name + '%',)).fetchone()
+            foreign_hero = self.cursor.execute(sql_select_hero_by_name, 
+                            ('%' + foreign.hero_name + '%',)).fetchone()
+            # submit the data                
+            date = datetime.datetime.now()
+            
+            sql_data = (oppid, gameoutcome.first, gameoutcome.won, 
+            gameoutcome.duration, int(gameoutcome.turns),
+            date, foreign_hero['id'], local_hero['id'], self.active_deck)
+            self.cursor.execute(sql_insert_match, sql_data)
+            matchid = self.cursor.lastrowid
+            
+            #submit the cards
+            for card in self.cards_played:
+                local_player = False
+                if card.player == local.id:
+                    local_player = True
+                self.cursor.execute(sql_insert_card, (matchid,
+                                card.cardId, card.turn, local_player))
         self.db.commit()
         self._reset_game_state()
         
 
     def _reset_game_state(self):
         self.cards_played = []
+        self._oppon_deck_treeview.deck = {}
+        self._oppon_deck_treeview.reset_view()
         self.players = None
         
     def _refresh_deck_list(self):

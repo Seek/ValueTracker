@@ -131,7 +131,7 @@ def thread_func(*args):
     file = open(path, 'r')
     counter = 0
     old_size = os.stat(path).st_size
-    #file.seek(0,2)
+    file.seek(0,2)
     while 1:
         if exit_flag.is_set():
             file.close()
@@ -167,6 +167,7 @@ GameStart = namedtuple('GameStart', ['players',])
 GameOutcome = namedtuple('GameOutcome', ['won', 'first', 'duration', 'turns'])
 CardPlayed = namedtuple('CardPlayed', ['cardId', 'turn', 'player'])
 CardDrawn = namedtuple('CardDrawn', ['cardId', 'turn'])
+CardShuffled = namedtuple('CardDrawn', ['cardId', 'player'])
 GameEvent = namedtuple('GameEvent', ['type', 'data']) # This will get passed back to the GUI
 
 # Enum for GameEvent types
@@ -178,7 +179,7 @@ class EventType(Enum):
     #Contains a dictionary with the information about who, when, and what
     CardPlayed = 3
     CardDrawn = 4
-
+    CardShuffled = 5
 class LogParser():
     def __init__(self, state_queue):
         self.q = state_queue
@@ -222,6 +223,8 @@ class LogParser():
                     self.foreign_player_found = True
         cardId = entity.get('cardId', None)
         if cardId is not None:
+            e = CardDrawn(cardId,  self.turn_num)
+            self.q.put(GameEvent(EventType.CardDrawn, e))
             if cardId == 'GAME_005':
                 self.first = False
             m = self.re_hero.match(cardId)
@@ -293,6 +296,13 @@ class LogParser():
                     if cardid is not None:
                         e = CardPlayed(entity['cardId'],  self.turn_num, entity['player'])
                         self.q.put(GameEvent(EventType.CardPlayed, e))
+            if value == 'DECK':
+                if isinstance(entity, dict):
+                    #Local player played a card
+                    cardid = entity.get('cardId', None)
+                    if cardid is not None:
+                        e = CardShuffled(entity['cardId'], entity['player'])
+                        self.q.put(GameEvent(EventType.CardShuffled, e))
         elif tag == 'TURN':
             if entity == 'GameEntity':
                 self.turn_num = int(value)
