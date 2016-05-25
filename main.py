@@ -19,13 +19,14 @@ import datetime
 #Local code
 import hs
 import copy
-
+import json
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
 # context = ssl._create_unverified_context()
 # req = urllib.request.urlopen(url, context=context)
 # f = req.read() // f would contain the json data
 
+CONFIG_FILE = 'config.json'
 Card = namedtuple('Card', ['id', 'name','rarity',
                              'cost', 'attack', 'health'])
                          
@@ -227,6 +228,10 @@ class DeckCanvas(tk.Canvas):
                     if 'num_text' in tags:
                         self.itemconfigure(item, 
                         text=str(self.active_deck[card_id][1]))
+                    if 'drawn1' in tags:
+                        self.itemconfigure(item, tags = (tags, 'drawn2'))
+                    elif 'drawn1' not in tags:
+                        self.itemconfigure(item, tags = (tags, 'drawn1'))
         
     def card_shuffled(self, card_id):
         if card_id in self.active_deck:
@@ -236,11 +241,15 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    if 'card_name' in tags:
+                    if 'drawn2' in tags:
+                        self.dtag(item, 'drawn2')
+                    if 'card_name' in tags and 'drawn2' not in tags:
                         self.itemconfigure(item, fill='white')
+                        self.dtag(item, 'drawn1')
                     if 'num_text' in tags:
                         self.itemconfigure(item, 
                         text=str(self.active_deck[card_id][1]))
+                    
         
     def card_played(self, card_id):
         items = self.find_withtag(card_id)
@@ -340,7 +349,6 @@ class FloatingDeckCanvas():
         self._offsety = 0
         self.win.bind('<Button-1>',self.clickwin)
         self.win.bind('<B1-Motion>',self.dragwin)
-    
     def dragwin(self,event):
         x = self.win.winfo_pointerx() - self._offsetx
         y = self.win.winfo_pointery() - self._offsety
@@ -680,29 +688,53 @@ class Application(ttk.Frame):
         
         #Get our configuation and set up logging
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
-        self.config = configparser.ConfigParser()
-        if os.path.isfile('config.ini') is False:
-            logging.warn('config.ini is missing, falling back on defaults')
-        else:
-            self.config.read('config.ini')
-        
+
         #Initialize the gui
         self._init_database()
         self._create_widgets()
         self._create_menu()
+        self.load_settings()
         self._start_tracking_thread()
         self._update_gui()
         self._refresh_deck_list()
         self._reset_game_state()
         self.active_deck = None
         
+    def load_settings(self):
+        self.config = {}
+        if os.path.isfile(CONFIG_FILE) is False:
+            logging.warn('{0} is missing, falling back on defaults'.format(CONFIG_FILE))
+        else:
+            with open(CONFIG_FILE, 'r') as file:
+                self.config = json.load(file)
+        # Restore the old window 
+        if 'main_window_geom' in self.config:
+            last_geom = self.config["main_window_geom"]
+            self.master.geometry(last_geom)
+        if 'local_deck_geom' in self.config:
+            last_geom = self.config["local_deck_geom"]
+            self._deck_tracker.win.geometry(last_geom)
+        if 'foreign_deck_geom' in self.config:
+            last_geom = self.config["foreign_deck_geom"]
+            self._foreign_deck_tracker.win.geometry(last_geom)
+        
+        
+    def save_settings(self):
+        self.config['main_window_geom'] = self.master.geometry()
+        self.config['local_deck_geom'] = self._deck_tracker.win.geometry()
+        self.config['foreign_deck_geom'] = self._foreign_deck_tracker.win.geometry()
+        with open(CONFIG_FILE, 'w') as file:
+            json.dump(self.config, file)
+        
     def on_close(self):
+        self.save_settings()
         self._end_tracking_thread()
         self.db.commit()
         self.cursor.close()
         self.db.close()
         self.master.destroy()
-
+        
+        
     def _create_widgets(self):
         self._create_notebook()
 
@@ -802,20 +834,19 @@ class Application(ttk.Frame):
         #window.overrideredirect(1) #Remove border
         #window.call('wm', 'attributes', '.', '-topmost', '1')
         self._deck_tracker = FloatingDeckCanvas()
+        self._foreign_deck_tracker = FloatingDeckCanvas()
         self._deck_treeview = self._deck_tracker.deck_canvas
         #self._deck_treeview = DeckCanvas(window, width=400, height= 800)
         self._deck_treeview.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_treeview.editable = False
         #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
-        self._oppon_deck_treeview = DeckCanvas(pw2, width=400, height= 800)
-        self._oppon_deck_treeview.editable = False
+        self._oppon_deck_treeview = self._foreign_deck_tracker.deck_canvas
+        self._oppon_deck_treeview.editable = True
         # self._deck_treeview.add_card('BRM_002')
         # self._deck_treeview.card_drawn('BRM_002')
         # self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
-        #pw2.add(self._deck_treeview)
-        pw2.add(self._oppon_deck_treeview)
     
     def _init_database(self):
         self.db = sqlite3.connect('stats.db')
@@ -881,7 +912,6 @@ class Application(ttk.Frame):
             'The game just ended\n', 
             (None,))
             self._write_game(data)
-            self._deck_treeview.reset_tracking()
             return
         elif etype == hs.EventType.GameStart:
             self.players = data.players
@@ -943,6 +973,7 @@ class Application(ttk.Frame):
 
     def _reset_game_state(self):
         self.cards_played = []
+        self._deck_treeview.reset_tracking()
         self._oppon_deck_treeview.set_deck({})
         self.players = None
         
