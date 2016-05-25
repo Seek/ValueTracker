@@ -57,7 +57,7 @@ def card_from_row(row):
     return Card(row['id'], row['name'], row['rarity'], 
     row['cost'], row['attack'], row['health'])
    
-def card_from_id(id, cursor):
+def card_from_id(card_id, cursor):
     results = cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
     row = results.fetchone()
     return card_from_row(row)
