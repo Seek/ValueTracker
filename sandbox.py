@@ -9,7 +9,6 @@ import hs
 from collections import namedtuple
 import pdb
 
-from deckcanvas import DeckCanvas
 import hs
 
 Card = namedtuple('Card', ['id', 'name','rarity',
@@ -62,124 +61,86 @@ def load_deck_from_sql(cursor, id):
         deck[card.id] = [card, int(row['num'])]
     return deck
     
-class DeckBuilderCardEntry(ttk.Entry):
-    """ Requires a working database cursor to work """
-    def __init__(self, parent, cursor, deckcanvas, **kwargs):
-        ttk.Entry.__init__(self, parent, **kwargs)
-        self.var = self['textvariable']
-        self.parent = parent
+        
+class DeckStatisticsCanvas(ttk.Frame):
+    def __init__(self, cursor, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        xscrollbar = tk.Scrollbar(self, orient=tk.HORIZONTAL)
+        xscrollbar.grid(row=1, column=0, sticky=(tk.E, tk.W))
+
+        yscrollbar = tk.Scrollbar(self)
+        yscrollbar.grid(row=0, column=1, sticky=(tk.N,tk.S))
+
+        self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                        xscrollcommand=xscrollbar.set,
+                        yscrollcommand=yscrollbar.set,
+                        width = self['width'],
+                        height = self['height'])
+
+        self.canvas.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+
+        xscrollbar.config(command=self.canvas.xview)
+        yscrollbar.config(command=self.canvas.yview)
+
+        self.row_height = 20
+        
+        self.pack()
+        self.canvas['bg'] = 'white'
         self.cursor = cursor
-        self.deckcanvas = deckcanvas
-        if self.var == '':
-            self.var = self['textvariable'] = tk.StringVar()
-
-        self.var.trace('w', self.changed)
-
-    def changed(self, name, index, mode):  
-        words = self.comparison()
-        deck = {}
-        if words:
-            for word in words:
-                deck[word['id']] = [card_from_row(word), 1]
-            self.deckcanvas.set_deck(deck)
+        # Interactivity
+        self.bind("<Button-1>", self._left_click)
+        self.bind("<Button-3>", self._right_click)
+        
+        self.editable = False
+        
+    def set_deck(self, deck_id):
+        self.active_deck = deck_id
+        self.refresh_canvas()
+        
+    def _left_click(self, event):
+        if self.editable is True:
+            item = self.find_closest(event.x, event.y, halo=None, start=None)
+            if item:
+                pass
         else:
-            self.deckcanvas.set_deck({})
-                
-
-    def comparison(self):
-        search = '%'+self.var.get()+'%'
-        results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
-        rows = results.fetchmany(20)
-        return rows
-                                
-class DeckCreator(ttk.Frame):
-    def __init__(self, cursor, master=None):
-        # Initialize
-        ttk.Frame.__init__(self, master, width= 800, height = 600)
-        self.pack(fill=tk.BOTH, expand=1)
-        self.cursor = cursor
-        self.master = master
-        self._create_widgets()
-        self.update_deck = False
-        self.deck_id = None
-        
-    def _create_widgets(self):
-        pw = ttk.PanedWindow(self, width= 1080, height = 800, orient=tk.HORIZONTAL)
-        pw.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
-        pw.columnconfigure(0, weight=1)
-        pw.rowconfigure(0, weight=1)
-        f1 = ttk.Frame(pw, width = 400, height = 600, relief='sunken')
-        f2 = ttk.Frame(pw, width = 400)
-        #f1.rowconfigure(1, weight=1)
-        self._entry_canvas = DeckCanvas(f1, width = 500, height = 500)
-        self._static_canvas = DeckCanvas(f2, width = 500, height = 500)
-        self._entry_canvas.editable = True
-        self._static_canvas.editable = True
-        self._entry_canvas.bind_card_clicked(self.add_card)
-        self._static_canvas.bind_card_clicked(self.remove_card)
-        self._card_entry = DeckBuilderCardEntry(f1, self.cursor, self._entry_canvas)
-        ttk.Label(f1, text='Enter Card Name:').pack(fill=tk.X, expand=0)
-        self._card_entry.pack(fill=tk.X, expand = tk.FALSE)
-        self._entry_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
-        self._static_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
-        
-        ttk.Label(f2, text='Select a class:').pack(fill=tk.X, expand=0)
-        self._deck_name_entry = ttk.Entry(f2)
-        self._hero_class_list = HeroClassListbox(f2)
-        self._hero_class_list.pack(fill=tk.X, expand=0)
-        ttk.Label(f2, text='Enter Deck Name:').pack(fill=tk.X, expand=0)
-        self._deck_name_entry.pack(fill=tk.X, expand=0)
-        self._save_deck_btn = ttk.Button(f2, text = 'Save', command= self._btn_save)
-        self._save_deck_btn.pack(fill=tk.X, expand=0)
-        pw.add(f1)
-        pw.add(f2)
-        
-    def _btn_save(self):
-        if len(self._static_canvas.static_deck) > 30:
-            print('Too many cards')
             return
-        elif len(self._static_canvas.static_deck) < 30:
-            print('Too few cards')
-            return
-        elif self._deck_name_entry.get() == '' and self.update_deck is False:
-            print('No name given')
-            return
-        elif len(self._hero_class_list.curselection()) < 1 and self.update_deck is False:
-            print('No class selected')
-            return
-        elif self.update_deck is True:
-            table_name = 'deck_' + str(self.deck_id)
-            save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
-            return
+            
+    def _right_click(self, event):
+        if self.editable is True:
+            pass
         else:
-            # Write to db
-            item = self._hero_class_list.curselection()[0]
-            herostr = self._hero_class_list.get(item)
-            heronum = hs.hero_dict_names[herostr]
-            deck = self.cursor.execute(sql_select_deck_by_name, 
-                        ('%' + self._deck_name_entry.get() +'%',)).fetchone()
-            if deck is not None:
-                print('Deck with that name already exists')
-                return
-            else:
-                self.cursor.execute(sql_insert_deck, (self._deck_name_entry.get(),heronum))
-                deckid = self.cursor.lastrowid
-                table_name = 'deck_' + str(deckid)
-                self.cursor.execute(sql_create_deck.format(table_name))
-                save_deck_to_sql(self.cursor, self._static_canvas.static_deck, table_name)
-                return
+            return
     
-    def add_card(self, card_id):
-        results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
-        row = results.fetchone()
-        card = card_from_row(row)
-        self._static_canvas.add_card(card)
-
-    def remove_card(self, card_id):
-        results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
-        row = results.fetchone()
-        card = card_from_row(row)
-        self._static_canvas.remove_card(card)
+    def refresh_canvas(self):
+        # This is where the magic happens
+        height = self.winfo_reqheight()
+        width = self.winfo_reqwidth()
+        self.canvas.delete(tk.ALL)
+        sql_str = 'SELECT * FROM match WHERE deck = ?'
+        rows = self.cursor.execute(sql_str, (self.active_deck,)).fetchmany(20)
+        print(rows)
+        if rows:
+            columns = rows[0].keys()
+            ncols = len(columns)
+            if ncols < 1:
+                return
+            column_width = width/ncols
+            x0 = 0
+            y0 = 0
+            x1 = width
+            y1 = self.row_height
+            self.canvas.create_rectangle(x0, y0, x1, y1,
+                                    fill="grey85", width=0)
+            self.canvas.create_line(0, self.row_height, width, self.row_height,
+            fill='grey50')
+            
+            for i, column in enumerate(columns):
+                self.canvas.create_line((i+1)*column_width, 0,
+                                       (i+1)*column_width, height, fill='grey50')
+        return
         
 
 class Application(ttk.Frame):
@@ -199,9 +160,10 @@ class Application(ttk.Frame):
         self.db = sqlite3.connect('stats.db')
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
-        self.deck_create = DeckCreator(self.cursor, self)
+        self.wid = DeckStatisticsCanvas(self.cursor, self, width=600, height=600)
+        self.wid.canvas.configure(scrollregion=(0, 0, 600, 600))
         # deck = load_deck_from_sql(self.cursor, 4)
-        # self.deck_view.set_deck(deck)
+        self.wid.set_deck(2)
     
     def on_close(self):
         self.db.close()

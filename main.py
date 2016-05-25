@@ -54,9 +54,13 @@ sql_insert_match = """INSERT INTO match
 (opponent, first, won, duration, num_turns, date, opp_hero, player_hero, deck)
 VALUES (?,?,?,?,?,?,?,?,?)"""
 sql_insert_card = "INSERT INTO card_played (matchid, cardid, turn, local) VALUES(?,?,?,?)"
+
 def card_from_row(row):
-    return Card(row['id'], row['name'], row['rarity'], 
-    row['cost'], row['attack'], row['health'])
+    if row is not None:
+        return Card(row['id'], row['name'], row['rarity'], 
+        row['cost'], row['attack'], row['health'])
+    else:
+        return None
    
 def card_from_id(card_id, cursor):
     results = cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
@@ -128,6 +132,12 @@ class DeckCanvas(tk.Canvas):
         self.num_plate_top_pad = 1
         self.num_plate_bot_pad  = 1
         self.max_label_size = 30
+    
+    def get_num_cards(self):
+        n = 0
+        for val in self.static_deck.values():
+            n += val[1]
+        return n
         
     def reset_tracking(self):
         self.active_deck = copy.deepcopy(self.static_deck)
@@ -223,16 +233,12 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
+                    print(tags)
                     if 'card_name' in tags:
                         self.itemconfigure(item, fill=self.drawn_card_color)
                     if 'num_text' in tags:
                         self.itemconfigure(item, 
                         text=str(self.active_deck[card_id][1]))
-                    if 'drawn1' in tags:
-                        self.itemconfigure(item, tags = (tags, 'drawn2'))
-                    elif 'drawn1' not in tags:
-                        self.itemconfigure(item, tags = (tags, 'drawn1'))
-        
     def card_shuffled(self, card_id):
         if card_id in self.active_deck:
             self.active_deck[card_id][1] += 1
@@ -241,8 +247,6 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    if 'drawn2' in tags:
-                        self.dtag(item, 'drawn2')
                     if 'card_name' in tags and 'drawn2' not in tags:
                         self.itemconfigure(item, fill='white')
                         self.dtag(item, 'drawn1')
@@ -341,7 +345,7 @@ class FloatingDeckCanvas():
         self.win.attributes("-toolwindow", True)
         self.win.attributes("-transparentcolor", 'grey')
         self.deck_canvas = DeckCanvas(self.win, background='grey',
-        highlightthickness=0, width=300, height=450)
+        highlightthickness=0, width=250, height=450)
         self.deck_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
         self.win.update_idletasks()
         self.win.overrideredirect(True)
@@ -426,6 +430,10 @@ class DeckCreator(ttk.Frame):
         self._card_entry.pack(fill=tk.X, expand = tk.FALSE)
         self._entry_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._static_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self._num_cards_text = tk.StringVar()
+        
+        self._num_cards_text.set('Number of cards: {0}'.format(len(self._static_canvas.static_deck)))
+        self._num_cards_label = ttk.Label(f2, textvariable=self._num_cards_text).pack(fill=tk.X, expand=0)
         
         ttk.Label(f2, text='Select a class:').pack(fill=tk.X, expand=0)
         self._deck_name_entry = ttk.Entry(f2)
@@ -435,6 +443,9 @@ class DeckCreator(ttk.Frame):
         self._deck_name_entry.pack(fill=tk.X, expand=0)
         self._save_deck_btn = ttk.Button(f2, text = 'Save', command= self._btn_save)
         self._save_deck_btn.pack(fill=tk.X, expand=0)
+        
+    def update_num_cards(self):
+        self._num_cards_text.set('Number of cards: {0}'.format(self._static_canvas.get_num_cards()))
         
     def _btn_save(self):
         if len(self._static_canvas.static_deck) > 30:
@@ -475,13 +486,17 @@ class DeckCreator(ttk.Frame):
         results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
         row = results.fetchone()
         card = card_from_row(row)
-        self._static_canvas.add_card(card)
+        if card is not None:
+            self._static_canvas.add_card(card)
+            self._num_cards_text.set('Number of cards: {0}'.format(self._static_canvas.get_num_cards()))
 
     def remove_card(self, card_id):
         results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
         row = results.fetchone()
         card = card_from_row(row)
-        self._static_canvas.remove_card(card)
+        if card is not None:
+            self._static_canvas.remove_card(card)
+            self._num_cards_text.set('Number of cards: {0}'.format(self._static_canvas.get_num_cards()))
 
 # # A deck will just be a dictionary with the value being 
 # class DeckTreeview(ttk.Treeview):
@@ -891,7 +906,9 @@ class Application(ttk.Frame):
                 self._debug_text.insert(tk.END, 
                 'The foreign player just played {0} on turn {1}\n'.format(data.cardId, data.turn), 
                 (None,))
-                self._oppon_deck_treeview.add_card(card_from_id(data.cardId, self.cursor))
+                tmp_card = card_from_id(data.cardId, self.cursor)
+                if tmp_card is not None:
+                    self._oppon_deck_treeview.add_card(tmp_card)
             self._debug_text.see(tk.END)
             self.cards_played.append(data)
             return
@@ -1014,6 +1031,7 @@ class Application(ttk.Frame):
             dc.update_deck = True
             dc.deck_id = item
             dc._static_canvas.set_deck(load_deck_from_sql(self.cursor, item))
+            dc.update_num_cards()
             dc._hero_class_list.get(0)
             dc._hero_class_list.selection_set
             self.wait_window(win)
