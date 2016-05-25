@@ -18,6 +18,7 @@ import pdb
 import datetime
 #Local code
 import hs
+import copy
 
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
@@ -57,7 +58,7 @@ def card_from_row(row):
     row['cost'], row['attack'], row['health'])
    
 def card_from_id(id, cursor):
-    results = self.cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
+    results = cursor.execute(r"SELECT * FROM cards WHERE id LIKE ?", (card_id,))
     row = results.fetchone()
     return card_from_row(row)
 
@@ -83,8 +84,7 @@ def save_deck_to_sql(cursor, deck, table):
         else:
             cursor.execute(update_str, (card[1],'%' + card[0].id +'%'))
             print('Updated ' + card[0].id + 'to ' + str(card[1]))
-            
-import copy
+           
 
 class DeckCanvas(tk.Canvas):
     def __init__(self, master=None, **kwargs):
@@ -93,6 +93,8 @@ class DeckCanvas(tk.Canvas):
         # Interactivity
         self.bind("<Button-1>", self._left_click)
         self.bind("<Button-3>", self._right_click)
+        #self.bind("<Configure>", self.on_resize)
+
         self.card_clicked = []
         # Deck options
         self.editable = False
@@ -140,6 +142,13 @@ class DeckCanvas(tk.Canvas):
         
     def unbind_card_clicked(self, func):
         self.card_clicked.remove(func)
+        
+    def on_resize(self,event):
+        self.width = event.width   #>>>854
+        self.height = event.height #>>>404
+        self['width'] = self.width
+        self['height'] = self.height
+        #self.refresh_canvas()
         
     def _left_click(self, event):
         if self.editable is True:
@@ -200,7 +209,6 @@ class DeckCanvas(tk.Canvas):
             # Copy the deck over
             self.active_deck = copy.deepcopy(self.static_deck)
             # Redraw
-            print(self.active_deck)
             self.refresh_canvas()
         else:
             return
@@ -257,20 +265,15 @@ class DeckCanvas(tk.Canvas):
                             key = lambda x: (x[0].cost, x[0].name, x[1]))
         # For now we will clear and completely redraw
         self.delete(tk.ALL)
-        print(cards_sorted)
         # Start redrawing
         for i, card in enumerate(cards_sorted):
-            # Debug coordinates
-            print('x1 : {0}, y1 : {1}, x2 : {2}, y2 : {3}'.format(
-                0, (i)*frame_height, width, (i+1)*frame_height,
-            ))
             # Draw the back plate
             x0 = 0
             y0 = (i)*frame_height
             x1 = width
             y1 = (i+1)*frame_height
             self.create_rectangle(x0, y0, x1, y1,
-                                    fill="grey", width=2, tags=(card[0].id, 'frame_plate'))
+                                    fill="grey60", width=2, tags=(card[0].id, 'frame_plate'))
             # Draw cost rectangle
             cost_plate_x1 = (width * self.cost_plate_size)
             self.create_rectangle(x0, y0+self.cost_plate_top_pad, 
@@ -319,6 +322,35 @@ class DeckCanvas(tk.Canvas):
                 self.create_image(num_text_x, num_text_y,
                 image=self.star_image,
                 tags= (card[0].id,))
+                
+class FloatingDeckCanvas():
+    def __init__(self):
+        self.win = tk.Toplevel(background='grey', padx = 4, pady =4)
+        self.win.lift()
+        self.win.attributes("-topmost", True)
+        self.win.attributes("-alpha", 0.90)
+        self.win.attributes("-toolwindow", True)
+        self.win.attributes("-transparentcolor", 'grey')
+        self.deck_canvas = DeckCanvas(self.win, background='grey',
+        highlightthickness=0, width=300, height=450)
+        self.deck_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self.win.update_idletasks()
+        self.win.overrideredirect(True)
+        self._offsetx = 0
+        self._offsety = 0
+        self.win.bind('<Button-1>',self.clickwin)
+        self.win.bind('<B1-Motion>',self.dragwin)
+    
+    def dragwin(self,event):
+        x = self.win.winfo_pointerx() - self._offsetx
+        y = self.win.winfo_pointery() - self._offsety
+        self.win.geometry('+{x}+{y}'.format(x=x,y=y))
+
+    def clickwin(self,event):
+        self._offsetx = event.x
+        self._offsety = event.y
+
+
         
 class HeroClassListbox(tk.Listbox):
         def __init__(self, master, *args, **kwargs):
@@ -370,12 +402,10 @@ class DeckCreator(ttk.Frame):
         self.deck_id = None
         
     def _create_widgets(self):
-        pw = ttk.PanedWindow(self, width= 1080, height = 800, orient=tk.HORIZONTAL)
-        pw.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
-        pw.columnconfigure(0, weight=1)
-        pw.rowconfigure(0, weight=1)
-        f1 = ttk.Frame(pw, width = 400, height = 600, relief='sunken')
-        f2 = ttk.Frame(pw, width = 400)
+        f1 = ttk.Frame(self, width = 400, height = 600)
+        f1.pack(side = tk.LEFT, fill=tk.BOTH, expand=tk.TRUE)
+        f2 = ttk.Frame(self, width = 400)
+        f2.pack(side = tk.RIGHT, fill=tk.BOTH, expand=tk.TRUE)
         #f1.rowconfigure(1, weight=1)
         self._entry_canvas = DeckCanvas(f1, width = 500, height = 500)
         self._static_canvas = DeckCanvas(f2, width = 500, height = 500)
@@ -397,12 +427,8 @@ class DeckCreator(ttk.Frame):
         self._deck_name_entry.pack(fill=tk.X, expand=0)
         self._save_deck_btn = ttk.Button(f2, text = 'Save', command= self._btn_save)
         self._save_deck_btn.pack(fill=tk.X, expand=0)
-        pw.add(f1)
-        pw.add(f2)
         
     def _btn_save(self):
-        print(self._static_canvas.static_deck)
-        print(len(self._static_canvas.static_deck))
         if len(self._static_canvas.static_deck) > 30:
             print('Too many cards')
             return
@@ -417,7 +443,7 @@ class DeckCreator(ttk.Frame):
             return
         elif self.update_deck is True:
             table_name = 'deck_' + str(self.deck_id)
-            save_deck_to_sql(self.cursor, self._deck_treeview.static_deck, table_name)
+            save_deck_to_sql(self.cursor, self._static_canvas.static_deck, table_name)
             return
         else:
             # Write to db
@@ -768,13 +794,16 @@ class Application(ttk.Frame):
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
         pw2 = ttk.PanedWindow(f2, orient=tk.HORIZONTAL)
         pw2.pack(fill=tk.BOTH, expand=1)
-        window = tk.Toplevel()
-        window.lift()
-        window.attributes("-topmost", True)
-        window.attributes("-alpha", 0.90)
+        # window = tk.Toplevel()
+        # window.lift()
+        # window.attributes("-topmost", True)
+        # window.attributes("-alpha", 0.90)
+        
         #window.overrideredirect(1) #Remove border
         #window.call('wm', 'attributes', '.', '-topmost', '1')
-        self._deck_treeview = DeckCanvas(window, width=400, height= 800)
+        self._deck_tracker = FloatingDeckCanvas()
+        self._deck_treeview = self._deck_tracker.deck_canvas
+        #self._deck_treeview = DeckCanvas(window, width=400, height= 800)
         self._deck_treeview.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_treeview.editable = False
         #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
@@ -953,10 +982,9 @@ class Application(ttk.Frame):
             dc = DeckCreator(self.cursor, master=win)
             dc.update_deck = True
             dc.deck_id = item
-            dc._deck_treeview.deck = load_deck_from_sql(self.cursor, item)
+            dc._static_canvas.set_deck(load_deck_from_sql(self.cursor, item))
             dc._hero_class_list.get(0)
             dc._hero_class_list.selection_set
-            dc._deck_treeview.reset_view()
             self.wait_window(win)
             dc.update_deck = False
             dc.deck_id = None
