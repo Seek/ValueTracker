@@ -582,196 +582,223 @@ class DeckCreator(ttk.Frame):
             self._static_canvas.remove_card(card)
             self._num_cards_text.set('Number of cards: {0}'.format(self._static_canvas.get_num_cards()))
 
-# # A deck will just be a dictionary with the value being 
-# class DeckTreeview(ttk.Treeview):
-#     def __init__(self, master, cursor, *args, **kwargs):
-#         ttk.Treeview.__init__(self, master, 
-#                             columns=('cost', 'name', 'num'), 
-#                             displaycolumns=('cost name num'),
-#                             show = 'headings')
-#         self.cursor = cursor
-#         self.column("name", width=150)
-#         self.column("num", width=15)
-#         self.column("cost", width=15)
-#         self.heading("name", text="Name")
-#         self.heading("num", text="#")
-#         self.heading("cost", text='Cost')
-#         self.bind("<Double-1>", self._on_double_click)
-#         self.tag_configure('common', background='gray')
-#         self.tag_configure('played', background='dim gray')
-#         self.tag_configure('drawn', foreground = 'OliveDrab4')
-#         self.tag_configure('rare', background='blue')
-#         self.tag_configure('epic', background='purple')
-#         self.tag_configure('legend', background='goldenrod')
-#         self.enable_building = True
-#         #self.reset_view()
-#         self.deck = {}
-    
-#     def set_deck(self, deck):
-#         self.reset_view()
+class DeckStatisticsCanvas(ttk.Frame):
+    def __init__(self, cursor, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        yscrollbar = tk.Scrollbar(self)
+        yscrollbar.grid(row=0, column=1, sticky=(tk.N,tk.S))
+
+        self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                        yscrollcommand=yscrollbar.set,
+                        width = self['width'],
+                        height = self['height'])
+
+        self.canvas.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+
+        yscrollbar.config(command=self.canvas.yview)
+
+        self.row_height = 20
         
-#     def _on_double_click(self, event):
-#         if self.enable_building == True:
-#             sel = self.selection()
-#             if len(sel) > 0:
-#                 item = self.selection()[0]
-#                 self.remove_card(item)
+        self.pack()
+        self.canvas['bg'] = 'white'
+        self.cursor = cursor
+        # Interactivity
+        self.bind("<Button-1>", self._left_click)
+        self.bind("<Button-3>", self._right_click)
         
-#     def add_card(self, card):
-#         if card not in self.deck:
-#             c = self.cursor.execute(sql_select_card_by_id, ('%' + card +'%',)).fetchone()
-#             if c is not None:
-#                 cc = card_from_row(c)
-#                 self.deck[card] = [cc, 1]
-#                 #Update display
-#                 self.insert('', 'end', cc.id, values=(str(cc.cost), cc.name, '1'))
-#                 return
-#         else:
-#             cc = self.deck[card][0]
-#             n = self.deck[card][1]
-#             if n < 2:
-#                 self.deck[card][1] += 1
-#                 self.item(cc.id, values=(cc.cost, cc.name, '2'))
-#                 return
-#         return
+        self.load_images()
+        self.active_deck = None
+        self.editable = False
         
-#     def remove_card(self, card):
-#         if card in self.deck:
-#             cc = self.deck[card][0]
-#             n = self.deck[card][1]
-#             if n > 1:
-#                 self.deck[card][1] -= 1
-#                 self.item(cc.id, values=(cc.cost, cc.name, '1'))
-#             else:
-#                 self.delete(card)
+        self.font = tk.font.Font(family='Helvetica', size=10, weight = 'bold')
+        self.grid_color = "#84aad9"
+        self.win_color = '#4a9e5b'
+        self.lose_color = '#7c23a6'
+        self.column1_x = 0
+        self.column2_x = 150
+        self.column3_x = 300
+        self.column4_x = 450
         
-#     def card_played(self, card):
-#         if card in self.deck:
-#             if self.tag_has('played', card) is 1:
-#                 values = self.item(card, 'values')
-#                 self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
-#                 return
-#             else:
-#                 tags = self.item(card, 'tags')
-#                 tags= [tags, 'played']
-#                 self.item(card, tags=tags)
-#                 values = self.item(card, 'values')
-#                 self.item(card, values=(values[0], values[1], str(int(values[2])-1)))
-#                 return
         
-#     def card_drawn(self, card):
-#         if card in self.deck:
-#             if self.tag_has('drawn', card) is 1:
-#                 return
-#             else:
-#                 tags = self.item(card, 'tags')
-#                 tags= [tags, 'drawn']
-#                 self.item(card, tags=tags)
-#                 return
+    def load_images(self):
+        self.class_images = {}
+        self.icon_size = 16
+        for i in range(1,10):
+            path = './images/tbl_{0}.png'.format(i)
+            im = PIL.Image.open(path)
+            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
+            im = PIL.ImageTk.PhotoImage(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
             
-#     def card_shuffled(self, card):
-#         if card in self.deck:
-#             print(card)
-#             print(self.tag_has('drawn', card))
-#             if self.tag_has('drawn', card) is 1:
-#                 print(card + 'was drawn')
-#                 tags = self.item(card, 'tags')
-#                 print(tags)
-#                 new_tags = []
-#                 for tag in tags:
-#                     if tag == 'drawn':
-#                         continue
-#                     else:
-#                         new_tags.append(tag)
-#                 print(new_tags)
-#                 self.item(card, tags=new_tags)
-#                 return
-#             else:
-#                 return
+    def set_deck(self, deck_id):
+        self.active_deck = deck_id
+        self.refresh_canvas()
         
-#     def reset_view(self):
-#         self.delete(*self.get_children())
-#         c_sorted = sorted(self.deck.values(), key = lambda x: (x[0].cost, x[0].name, x[1]))
-#         for val in c_sorted:
-#             card = val[0]
-#             n = val[1]
-#             self.insert("", 'end', card.id, values=(str(card.cost), card.name, str(n)))
-#             self.item(card.id, tags='')
-        
-#     def get_num_cards(self):
-#         i = 0
-#         for v in self.deck.values():
-#             i += v[1]
-#         return i
-
-# class DeckCreator(ttk.Frame):
-#     def __init__(self, cursor, master=None):
-#         # Initialize
-#         ttk.Frame.__init__(self, master, width= 800, height = 600)
-#         self.pack(fill=tk.BOTH, expand=1)
-#         self.cursor = cursor
-#         self.master = master
-#         self._create_widgets()
-#         self.update_deck = False
-#         self.deck_id = None
-
-#     def _create_widgets(self):
-#         frame = ttk.Label(self, text='Select a class:')
-#         frame.pack(fill=tk.X, expand=0)
-#         self._hero_class_list = HeroClassListbox(self)
-#         self._hero_class_list.pack(fill=tk.X, expand=0)
-#         frame = ttk.Label(self, text='Enter Card Name:')
-#         frame.pack(fill=tk.X, expand=0)
-#         self._card_entry = hs.AutocompleteCardEntry(self, self.cursor)
-#         self._card_entry.pack(fill=tk.X, expand=0)
-#         self._card_entry.bind_card_cb(self._card_picked)
-#         self._deck_treeview = DeckTreeview(self, self.cursor)
-#         self._deck_treeview.pack(fill=tk.BOTH, expand=1)
-#         frame = ttk.Label(self, text='Enter Deck Name:')
-#         frame.pack(fill=tk.X, expand=0)
-#         self._deck_name_entry = ttk.Entry(self)
-#         self._deck_name_entry.pack(fill=tk.X, expand=0)
-#         self._save_deck_btn = ttk.Button(self, text = 'Save', command= self._btn_save)
-#         self._save_deck_btn.pack(fill=tk.X, expand=0)
+    def _left_click(self, event):
+        if self.editable is True:
+            item = self.find_closest(event.x, event.y, halo=None, start=None)
+            if item:
+                pass
+        else:
+            return
+            
+    def _right_click(self, event):
+        if self.editable is True:
+            pass
+        else:
+            return
     
-#     def _btn_save(self):
-#         if self._deck_treeview.get_num_cards() > 30:
-#             print('Too many cards')
-#             return
-#         elif self._deck_name_entry.get() == '' and self.update_deck is False:
-#             print('No name given')
-#             return
-#         elif len(self._hero_class_list.curselection()) < 1 and self.update_deck is False:
-#             print('No class selected')
-#             return
-#         elif self.update_deck is True:
-#             table_name = 'deck_' + str(self.deck_id)
-#             save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
-#             return
-#         else:
-#             # Write to db
-#             item = self._hero_class_list.curselection()[0]
-#             herostr = self._hero_class_list.get(item)
-#             heronum = hs.hero_dict_names[herostr]
-#             deck = self.cursor.execute(sql_select_deck_by_name, 
-#                         ('%' + self._deck_name_entry.get() +'%',)).fetchone()
-#             if deck is not None:
-#                 print('Deck with that name already exists')
-#                 return
-#             else:
-#                 self.cursor.execute(sql_insert_deck, (self._deck_name_entry.get(),heronum))
-#                 deckid = self.cursor.lastrowid
-#                 table_name = 'deck_' + str(deckid)
-#                 self.cursor.execute(sql_create_deck.format(table_name))
-#                 save_deck_to_sql(self.cursor, self._deck_treeview.deck, table_name)
-#                 return
+    def draw_frame(self):
+        width = self.canvas.winfo_reqwidth()
+        height = self.canvas.winfo_reqheight()
+        self.canvas.create_line(0,0, width, 0, fill = self.grid_color) # Top
+        self.canvas.create_line(0,0, 0, height, fill = self.grid_color) # Left
+        self.canvas.create_line(width,0, width, height, fill = self.grid_color) # Right
+        self.canvas.create_line(0,height, width, height, fill = self.grid_color) # Bottom
         
-#     def _card_picked(self, card):
-#         cards = self.cursor.execute(sql_select_card_by_name, ('%' + card +'%',)).fetchall()
-#         if cards is not None:
-#             for c in cards:
-#                 if c['name'] == card:
-#                     self._deck_treeview.add_card(c['id'])
+    def draw_results(self, results):
+        width = self.canvas.winfo_reqwidth()
+        height = self.canvas.winfo_reqheight()
+        # Grab some rows
+        rows = results.fetchmany(100)
+        # If we have rows,draw them
+        num_rows = 0 #Keep track of row
+        if rows:
+            for i, row in enumerate(rows):
+                num_rows += 1
+                p_hero = self.cursor.execute(
+                    "SELECT class FROM hero WHERE id = ?",
+                    (row['player_hero'],)
+                ).fetchone()['class']
+                o_hero = self.cursor.execute(
+                    "SELECT class FROM hero WHERE id = ?",
+                    (row['opp_hero'],)
+                ).fetchone()['class']
+                deck_name = self.cursor.execute(
+                    "SELECT name FROM deck WHERE id = ?",
+                    (row['deck'],)
+                ).fetchone()['name']
+                
+                date = row['date']
+                won = row['won']
+                
+                # Calc
+                row_top_y = i*self.row_height
+                row_bottom_y = (i+1)*self.row_height
+                mean_row_y = (row_top_y + row_bottom_y)/2
+                #Draw bottom of row
+                self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                fill = self.grid_color) # Top
+                                
+                self.canvas.create_image(self.column1_x, mean_row_y,
+                        anchor=tk.W, image= self.class_images[p_hero]
+                )
+                
+                self.canvas.create_text(self.column1_x + 20, mean_row_y,
+                        anchor=tk.W, text = deck_name, font=self.font
+                )
+                
+                self.canvas.create_image(self.column2_x, mean_row_y,
+                        anchor=tk.W, image= self.class_images[o_hero]
+                )
+                
+                self.canvas.create_text(self.column2_x + 20, mean_row_y,
+                        anchor=tk.W, text = hs.hero_dict[o_hero], font=self.font
+                )
+                
+                color = None
+                out_text = ""
+                if won == True:
+                    color = self.win_color
+                    out_text = 'Win'
+                else:
+                    color = self.lose_color
+                    out_text = 'Loss'
+                
+                self.canvas.create_text(self.column3_x, mean_row_y,
+                        anchor=tk.W, text = out_text, font=self.font,
+                        fill = color
+                )
+                
+                self.canvas.create_text(self.column4_x, mean_row_y,
+                        anchor=tk.W, text = date[0:19], font=self.font,
+                )
+                
+        return
+        
+    def refresh_canvas(self):
+        # Setup the canvas
+        # We need to make columns for the deck
+        # the oponents deck, the outcome, and date
+        # Draw the frame
+        self.draw_frame()
+        if self.active_deck is not None:
+            # Make a deck history page
+            games_results = self.cursor.execute(
+                "SELECT * FROM match WHERE deck = ?", (self.active_deck,)
+            )
+            
+            self.draw_results(games_results)
+            return
+        else:
+            # Make a general history page
+            games_results = self.cursor.execute(
+                "SELECT * FROM match"
+            )
+            self.draw_results(games_results)
+            return
+            
+class HeroSelector(ttk.Frame):
+    def __init__(self, master=None):
+        # Initialize
+        self.icon_width = 32
+        ttk.Frame.__init__(self, master, height = self.icon_width, width = self.icon_width* 9)
+        self.config(pad=0)
+        self.pack(fill=tk.X, expand=tk.TRUE)
+        
+        self.load_images()
+        self.create_labels()
+        self.active_class = None
+        
+        self.class_changed = []
+        
+        
+    def _left_click(self, event):
+        widget = event.widget
+        for l in self.labels:
+            l['background'] = self.def_color
+        self.active_class = self.labels[event.widget]
+        widget['background'] = 'blue'
+        for f in self.class_changed:
+            f(self.active_class)
+        return
+            
+    def _right_click(self, event):
+        pass
+        
+    def create_labels(self):
+        self.labels = {}
+        for i in range(1,10):
+             l = ttk.Label(self, image=self.class_images[i])
+             l.pack(side=tk.LEFT)
+             self.def_color = l['background']
+             l.bind('<Button-1>', self._left_click)
+             self.labels[l] = i
+             
+    def load_images(self):
+        self.class_images = {}
+        self.icon_size = self.icon_width
+        for i in range(1,10):
+            path = './images/tbl_{0}.png'.format(i)
+            im = PIL.Image.open(path)
+            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
+            im = PIL.ImageTk.PhotoImage(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
 
 class Application(ttk.Frame):
     def __init__(self, master=None):
