@@ -12,6 +12,8 @@ import PIL
 from PIL import ImageTk
 import hs
 import logging
+import os.path
+import copy
 
 Card = namedtuple('Card', ['id', 'name','rarity',
                              'cost', 'attack', 'health'])
@@ -73,6 +75,8 @@ class DeckCanvas(tk.Canvas):
         #self.bind("<Configure>", self.on_resize)
 
         self.card_clicked = []
+        self.images = {}
+        self.image_store = []
         # Deck options
         self.editable = False
         self.static_deck = {}
@@ -80,9 +84,9 @@ class DeckCanvas(tk.Canvas):
         self.rarity_to_color = {
             'FREE'      : '#b7c3d2',
             'COMMON'    : '#b7c3d2',
-            'RARE'      : '#608bbf',
-            'EPIC'      : '#ab60bf',
-            'LEGENDARY' : '#bf9b60'
+            'RARE'      : '#1543AD',
+            'EPIC'      : '#8215AD',
+            'LEGENDARY' : '#EDAD18'
         }
         self.drawn_card_color = '#BBFF8B'
         # Load legendary star
@@ -91,19 +95,29 @@ class DeckCanvas(tk.Canvas):
         
         # GUI options TODO: Move to configuration file
         self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
-        self.font = tk.font.Font(family='Helvetica', size=12, weight='bold')
+        self.font = tk.font.Font(family='Helvetica', size=11, weight='bold')
         
         # Given in percentage of the width
         self.name_text_offset_x = 5
         self.cost_text_offset_x = 0
         self.cost_plate_size = 0.12
-        self.cost_plate_top_pad = 1
-        self.cost_plate_bot_pad = 1
+        self.cost_plate_top_pad = 0.5
+        self.cost_plate_bot_pad = 0.5
         self.num_text_offset_x = 0
         self.num_plate_size = 0.88
-        self.num_plate_top_pad = 1
-        self.num_plate_bot_pad  = 1
-        self.max_label_size = 30
+        self.num_plate_top_pad = 0.5
+        self.num_plate_bot_pad  = 0.5
+        self.max_label_size = 35
+        
+    def load_image(self, card_id):
+        bar_file = card_id + '.png'
+        path_to_file = './images/bars/'+ bar_file
+        if os.path.isfile(path_to_file):
+            if card_id not in self.images:
+                im = PIL.Image.open(path_to_file)
+                self.images[card_id] = im #PIL.ImageTk.PhotoImage(im)
+        else:
+            logging.warn(bar_file + 'could not be found')
     
     def get_num_cards(self):
         n = 0
@@ -118,6 +132,10 @@ class DeckCanvas(tk.Canvas):
     def set_deck(self, deck):
         self.static_deck = copy.deepcopy(deck)
         self.active_deck = copy.deepcopy(deck)
+        self.images = {}
+        self.image_store = []
+        for card in deck.values():
+            self.load_image(card[0].id)
         self.refresh_canvas()
         
     def bind_card_clicked(self, func):
@@ -170,6 +188,7 @@ class DeckCanvas(tk.Canvas):
             else:
                 # Add the card to the deck
                 self.static_deck[card.id] = [copy.deepcopy(card), 1]
+                self.load_image(card.id)
             # Copy the deck over
             self.active_deck = copy.deepcopy(self.static_deck)
             # Redraw
@@ -187,6 +206,7 @@ class DeckCanvas(tk.Canvas):
                 else:
                     # Delete the last one
                     del self.static_deck[card.id]
+                    del self.images[card.id]
             else:
                 return
             # Copy the deck over
@@ -205,7 +225,6 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    print(tags)
                     if 'card_name' in tags:
                         self.itemconfigure(item, fill=self.drawn_card_color)
                     if 'num_text' in tags:
@@ -234,7 +253,7 @@ class DeckCanvas(tk.Canvas):
             for item in items:
                 tags = self.gettags(item)
                 if 'frame_plate' in tags:
-                    self.itemconfigure(item, fill='grey25')
+                    self.itemconfigure(item, fill='grey5')
         
     def refresh_canvas(self):
         # This is where the magic happens
@@ -244,7 +263,7 @@ class DeckCanvas(tk.Canvas):
         if num_cards < 1:
             self.delete(tk.ALL)
             return
-        frame_height = min(int(height/num_cards), 30)
+        frame_height = min(int(height/num_cards), self.max_label_size)
         # Get the cards in the correct order
         cards_sorted = sorted(self.active_deck.values(), 
                             key = lambda x: (x[0].cost, x[0].name, x[1]))
@@ -258,7 +277,21 @@ class DeckCanvas(tk.Canvas):
             x1 = width
             y1 = (i+1)*frame_height
             self.create_rectangle(x0, y0, x1, y1,
-                                    fill="grey60", width=2, tags=(card[0].id, 'frame_plate'))
+                                    fill="grey35", width=1, tags=(card[0].id, 'frame_plate'))
+            
+            num_plate_x1 = (width * self.num_plate_size)
+            name_text_y = (y0+y1)/2
+            cost_text_y = name_text_y
+            
+            im = self.images[card[0].id]
+            if frame_height != self.max_label_size:
+                im = im.crop((0, 0, im.width, frame_height))
+                
+            pi = PIL.ImageTk.PhotoImage(im)
+            self.image_store.append(pi)
+            self.create_image(num_plate_x1, cost_text_y, anchor=tk.E,
+                        image=pi, tags=(card[0].id, 'card_image')) 
+                                    
             # Draw cost rectangle
             cost_plate_x1 = (width * self.cost_plate_size)
             self.create_rectangle(x0, y0+self.cost_plate_top_pad, 
@@ -278,20 +311,22 @@ class DeckCanvas(tk.Canvas):
                                 tags=(card[0].id, 'cost_text'))
             # Draw the card name
             name_text_x = cost_plate_x1 + self.name_text_offset_x
-            name_text_y = (y0+y1)/2 # The center of the plate
+             # The center of the plate
             self.create_text(name_text_x, name_text_y, text=card[0].name,
                                 fill= 'white', anchor=tk.W, font=self.font,
                                 tags=(card[0].id, 'card_name'))
+
             
             # Draw num  rectangle
-            num_plate_x1 = (width * self.num_plate_size)
+            
             self.create_rectangle(num_plate_x1, y0+self.cost_plate_top_pad, 
                         width,  y1-self.cost_plate_bot_pad,
-                        fill='grey25', 
+                        fill='grey15', 
                         width=0, tags=(card[0].id))
             
             self.create_line(num_plate_x1, y0+self.cost_plate_top_pad, 
                         num_plate_x1,  y1-self.cost_plate_bot_pad,)
+                        
                         
             # Draw num text
             if card[0].rarity != 'LEGENDARY':
@@ -563,10 +598,11 @@ class Application(ttk.Frame):
         self.db = sqlite3.connect('stats.db')
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
-        self.wid = DeckCanvas(self, width=600, height=600)
+        self.wid = DeckCanvas(self, width=350, height=800)
         self.wid.pack(fill=tk.BOTH, expand=tk.TRUE)
-        # deck = load_deck_from_sql(self.cursor, 4)
-        self.wid.set_deck(2)
+        deck = load_deck_from_sql(self.cursor, 2)
+        self.wid.set_deck(deck)
+        #self.wid.set_deck(2)
     
     def on_close(self):
         self.db.close()

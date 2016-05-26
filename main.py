@@ -20,6 +20,10 @@ import datetime
 import hs
 import copy
 import json
+import PIL
+from PIL import ImageTk
+import re
+
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
 # context = ssl._create_unverified_context()
@@ -55,6 +59,12 @@ sql_insert_match = """INSERT INTO match
 VALUES (?,?,?,?,?,?,?,?,?)"""
 sql_insert_card = "INSERT INTO card_played (matchid, cardid, turn, local) VALUES(?,?,?,?)"
 
+def parse_geometry(geometry):
+    m = re.match("(\d+)x(\d+)([-+]\d+)([-+]\d+)", geometry)
+    if not m:
+        raise ValueError("failed to parse geometry string")
+    return [int(m.group(1)),int(m.group(2)),int(m.group(3)),int(m.group(4))]
+    
 def card_from_row(row):
     if row is not None:
         return Card(row['id'], row['name'], row['rarity'], 
@@ -101,6 +111,8 @@ class DeckCanvas(tk.Canvas):
         #self.bind("<Configure>", self.on_resize)
 
         self.card_clicked = []
+        self.images = {}
+        self.image_store = []
         # Deck options
         self.editable = False
         self.static_deck = {}
@@ -108,9 +120,9 @@ class DeckCanvas(tk.Canvas):
         self.rarity_to_color = {
             'FREE'      : '#b7c3d2',
             'COMMON'    : '#b7c3d2',
-            'RARE'      : '#608bbf',
-            'EPIC'      : '#ab60bf',
-            'LEGENDARY' : '#bf9b60'
+            'RARE'      : '#1543AD',
+            'EPIC'      : '#8215AD',
+            'LEGENDARY' : '#EDAD18'
         }
         self.drawn_card_color = '#BBFF8B'
         # Load legendary star
@@ -119,19 +131,29 @@ class DeckCanvas(tk.Canvas):
         
         # GUI options TODO: Move to configuration file
         self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
-        self.font = tk.font.Font(family='Helvetica', size=12, weight='bold')
+        self.font = tk.font.Font(family='Helvetica', size=11, weight='bold')
         
         # Given in percentage of the width
         self.name_text_offset_x = 5
         self.cost_text_offset_x = 0
         self.cost_plate_size = 0.12
-        self.cost_plate_top_pad = 1
-        self.cost_plate_bot_pad = 1
+        self.cost_plate_top_pad = 0.5
+        self.cost_plate_bot_pad = 0.5
         self.num_text_offset_x = 0
         self.num_plate_size = 0.88
-        self.num_plate_top_pad = 1
-        self.num_plate_bot_pad  = 1
-        self.max_label_size = 30
+        self.num_plate_top_pad = 0.5
+        self.num_plate_bot_pad  = 0.5
+        self.max_label_size = 35
+        
+    def load_image(self, card_id):
+        bar_file = card_id + '.png'
+        path_to_file = './images/bars/'+ bar_file
+        if os.path.isfile(path_to_file):
+            if card_id not in self.images:
+                im = PIL.Image.open(path_to_file)
+                self.images[card_id] = im #PIL.ImageTk.PhotoImage(im)
+        else:
+            logging.warn(bar_file + 'could not be found')
     
     def get_num_cards(self):
         n = 0
@@ -146,6 +168,10 @@ class DeckCanvas(tk.Canvas):
     def set_deck(self, deck):
         self.static_deck = copy.deepcopy(deck)
         self.active_deck = copy.deepcopy(deck)
+        self.images = {}
+        self.image_store = []
+        for card in deck.values():
+            self.load_image(card[0].id)
         self.refresh_canvas()
         
     def bind_card_clicked(self, func):
@@ -198,6 +224,7 @@ class DeckCanvas(tk.Canvas):
             else:
                 # Add the card to the deck
                 self.static_deck[card.id] = [copy.deepcopy(card), 1]
+                self.load_image(card.id)
             # Copy the deck over
             self.active_deck = copy.deepcopy(self.static_deck)
             # Redraw
@@ -215,6 +242,7 @@ class DeckCanvas(tk.Canvas):
                 else:
                     # Delete the last one
                     del self.static_deck[card.id]
+                    del self.images[card.id]
             else:
                 return
             # Copy the deck over
@@ -233,7 +261,6 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    print(tags)
                     if 'card_name' in tags:
                         self.itemconfigure(item, fill=self.drawn_card_color)
                     if 'num_text' in tags:
@@ -262,7 +289,7 @@ class DeckCanvas(tk.Canvas):
             for item in items:
                 tags = self.gettags(item)
                 if 'frame_plate' in tags:
-                    self.itemconfigure(item, fill='grey25')
+                    self.itemconfigure(item, fill='grey5')
         
     def refresh_canvas(self):
         # This is where the magic happens
@@ -272,7 +299,7 @@ class DeckCanvas(tk.Canvas):
         if num_cards < 1:
             self.delete(tk.ALL)
             return
-        frame_height = min(int(height/num_cards), 30)
+        frame_height = min(int(height/num_cards), self.max_label_size)
         # Get the cards in the correct order
         cards_sorted = sorted(self.active_deck.values(), 
                             key = lambda x: (x[0].cost, x[0].name, x[1]))
@@ -286,7 +313,22 @@ class DeckCanvas(tk.Canvas):
             x1 = width
             y1 = (i+1)*frame_height
             self.create_rectangle(x0, y0, x1, y1,
-                                    fill="grey60", width=2, tags=(card[0].id, 'frame_plate'))
+                                    fill="grey35", width=1, tags=(card[0].id, 'frame_plate'))
+            
+            num_plate_x1 = (width * self.num_plate_size)
+            name_text_y = (y0+y1)/2
+            cost_text_y = name_text_y
+            
+            if card[0].id in self.images:
+                im = self.images[card[0].id]
+                if frame_height != self.max_label_size:
+                    im = im.crop((0, 0, im.width, frame_height))
+                    
+                pi = PIL.ImageTk.PhotoImage(im)
+                self.image_store.append(pi)
+                self.create_image(num_plate_x1, cost_text_y, anchor=tk.E,
+                            image=pi, tags=(card[0].id, 'card_image')) 
+                                    
             # Draw cost rectangle
             cost_plate_x1 = (width * self.cost_plate_size)
             self.create_rectangle(x0, y0+self.cost_plate_top_pad, 
@@ -306,20 +348,22 @@ class DeckCanvas(tk.Canvas):
                                 tags=(card[0].id, 'cost_text'))
             # Draw the card name
             name_text_x = cost_plate_x1 + self.name_text_offset_x
-            name_text_y = (y0+y1)/2 # The center of the plate
+             # The center of the plate
             self.create_text(name_text_x, name_text_y, text=card[0].name,
                                 fill= 'white', anchor=tk.W, font=self.font,
                                 tags=(card[0].id, 'card_name'))
+
             
             # Draw num  rectangle
-            num_plate_x1 = (width * self.num_plate_size)
+            
             self.create_rectangle(num_plate_x1, y0+self.cost_plate_top_pad, 
                         width,  y1-self.cost_plate_bot_pad,
-                        fill='grey25', 
+                        fill='grey15', 
                         width=0, tags=(card[0].id))
             
             self.create_line(num_plate_x1, y0+self.cost_plate_top_pad, 
                         num_plate_x1,  y1-self.cost_plate_bot_pad,)
+                        
                         
             # Draw num text
             if card[0].rarity != 'LEGENDARY':
@@ -353,15 +397,55 @@ class FloatingDeckCanvas():
         self._offsety = 0
         self.win.bind('<Button-1>',self.clickwin)
         self.win.bind('<B1-Motion>',self.dragwin)
-    def dragwin(self,event):
-        x = self.win.winfo_pointerx() - self._offsetx
-        y = self.win.winfo_pointery() - self._offsety
-        self.win.geometry('+{x}+{y}'.format(x=x,y=y))
+        self.win.bind('<ButtonRelease-1>', self.release_mouse1)
+        self.win.bind('<Configure>', self.on_configure)
+        self.size_grip_width = 50
+        
+        self._in_resize = False
+        
+    def _in_sizegrip(self,x, y):
+        width = self.deck_canvas.winfo_reqwidth()
+        x0 = width - self.size_grip_width
+        x1 = width
+        if x > x0 and x < x1:
+            return True
+        else: 
+            return False
+    
 
+    def on_configure(self, event):
+        self.deck_canvas['width'] = event.width
+        self.deck_canvas['height'] = event.height
+    
+    def dragwin(self,event):
+        if self._in_resize:
+            x_diff = self.win.winfo_pointerx() - self._screen_offsetx
+            y_diff = self.win.winfo_pointery() - self._screen_offsety
+            width = self._last_geom[0] + x_diff
+            height = self._last_geom[1] + y_diff
+            print('{x}x{y}'.format(x=width,y=height))
+            self.win.geometry('{x}x{y}'.format(x=width,y=height))
+
+        else:
+            x = self.win.winfo_pointerx() - self._offsetx
+            y = self.win.winfo_pointery() - self._offsety
+            self.win.geometry('+{x}+{y}'.format(x=x,y=y))
+            
     def clickwin(self,event):
         self._offsetx = event.x
         self._offsety = event.y
-
+        self._screen_offsety = self.win.winfo_pointery() 
+        self._screen_offsetx = self.win.winfo_pointerx() 
+        self._last_geom = parse_geometry(self.win.geometry())
+        print(self._last_geom)
+        
+        if self._in_sizegrip(event.x, event.y):
+            self._in_resize = True
+        
+    def release_mouse1(self, event):
+        if self._in_resize == True:
+            self.deck_canvas.refresh_canvas()
+            self._in_resize = False
 
         
 class HeroClassListbox(tk.Listbox):
@@ -399,7 +483,7 @@ class DeckBuilderCardEntry(ttk.Entry):
     def comparison(self):
         search = '%'+self.var.get()+'%'
         results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
-        rows = results.fetchmany(20)
+        rows = results.fetchmany(10)
         return rows
                                 
 class DeckCreator(ttk.Frame):
@@ -735,9 +819,12 @@ class Application(ttk.Frame):
         
         
     def save_settings(self):
-        self.config['main_window_geom'] = self.master.geometry()
-        self.config['local_deck_geom'] = self._deck_tracker.win.geometry()
-        self.config['foreign_deck_geom'] = self._foreign_deck_tracker.win.geometry()
+        try:
+            self.config['main_window_geom'] = self.master.geometry()
+            self.config['local_deck_geom'] = self._deck_tracker.win.geometry()
+            self.config['foreign_deck_geom'] = self._foreign_deck_tracker.win.geometry()
+        except:
+            pass
         with open(CONFIG_FILE, 'w') as file:
             json.dump(self.config, file)
         
