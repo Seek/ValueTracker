@@ -423,7 +423,6 @@ class FloatingDeckCanvas():
             y_diff = self.win.winfo_pointery() - self._screen_offsety
             width = self._last_geom[0] + x_diff
             height = self._last_geom[1] + y_diff
-            print('{x}x{y}'.format(x=width,y=height))
             self.win.geometry('{x}x{y}'.format(x=width,y=height))
 
         else:
@@ -437,7 +436,6 @@ class FloatingDeckCanvas():
         self._screen_offsety = self.win.winfo_pointery() 
         self._screen_offsetx = self.win.winfo_pointerx() 
         self._last_geom = parse_geometry(self.win.geometry())
-        print(self._last_geom)
         
         if self._in_sizegrip(event.x, event.y):
             self._in_resize = True
@@ -468,6 +466,7 @@ class DeckBuilderCardEntry(ttk.Entry):
             self.var = self['textvariable'] = tk.StringVar()
 
         self.var.trace('w', self.changed)
+        self.hero_class = None
 
     def changed(self, name, index, mode):  
         words = self.comparison()
@@ -481,10 +480,71 @@ class DeckBuilderCardEntry(ttk.Entry):
                 
 
     def comparison(self):
-        search = '%'+self.var.get()+'%'
-        results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
+        if self.hero_class is None:
+            search = '%'+self.var.get()+'%'
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
+        else:
+            search = '%'+self.var.get()+'%'
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND player_class = ?", (search, self.hero_class))
         rows = results.fetchmany(10)
         return rows
+        
+class HeroSelector(ttk.Frame):
+    def __init__(self, master=None):
+        # Initialize
+        self.icon_width = 32
+        ttk.Frame.__init__(self, master, height = self.icon_width, width = self.icon_width* 9)
+        self.config(pad=0)
+        self.pack(fill=tk.X, expand=tk.TRUE)
+        
+        self.load_images()
+        self.create_labels()
+        self.active_class = None
+        self.class_changed = []
+        
+    def set_label(self, hero_class):
+        widget = self.classes[hero_class]
+        for l in self.labels:
+            l['background'] = self.def_color
+        self.active_class = hero_class
+        widget['background'] = 'blue'
+        for f in self.class_changed:
+            f(self.active_class)
+        
+    def _left_click(self, event):
+        widget = event.widget
+        for l in self.labels:
+            l['background'] = self.def_color
+        self.active_class = self.labels[event.widget]
+        widget['background'] = 'blue'
+        for f in self.class_changed:
+            f(self.active_class)
+        return
+            
+    def _right_click(self, event):
+        pass
+        
+    def create_labels(self):
+        self.labels = {}
+        self.classes = {}
+        for i in range(1,10):
+             l = ttk.Label(self, image=self.class_images[i])
+             l.pack(side=tk.LEFT)
+             self.def_color = l['background']
+             l.bind('<Button-1>', self._left_click)
+             self.labels[l] = i
+             self.classes[i] = l
+             
+    def load_images(self):
+        self.class_images = {}
+        self.icon_size = self.icon_width
+        for i in range(1,10):
+            path = './images/tbl_{0}.png'.format(i)
+            im = PIL.Image.open(path)
+            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
+            im = PIL.ImageTk.PhotoImage(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
                                 
 class DeckCreator(ttk.Frame):
     def __init__(self, cursor, master=None):
@@ -521,13 +581,18 @@ class DeckCreator(ttk.Frame):
         
         ttk.Label(f2, text='Select a class:').pack(fill=tk.X, expand=0)
         self._deck_name_entry = ttk.Entry(f2)
-        self._hero_class_list = HeroClassListbox(f2)
+        self._hero_class_list = HeroSelector(f2)
+        self._hero_class_list.class_changed.append(self.on_class_changed)
         self._hero_class_list.pack(fill=tk.X, expand=0)
         ttk.Label(f2, text='Enter Deck Name:').pack(fill=tk.X, expand=0)
         self._deck_name_entry.pack(fill=tk.X, expand=0)
         self._save_deck_btn = ttk.Button(f2, text = 'Save', command= self._btn_save)
         self._save_deck_btn.pack(fill=tk.X, expand=0)
         
+    def on_class_changed(self, player_class):
+        if self.update_deck is not True:
+            self._card_entry.hero_class = player_class
+    
     def update_num_cards(self):
         self._num_cards_text.set('Number of cards: {0}'.format(self._static_canvas.get_num_cards()))
         
@@ -608,6 +673,7 @@ class DeckStatisticsCanvas(ttk.Frame):
         # Interactivity
         self.bind("<Button-1>", self._left_click)
         self.bind("<Button-3>", self._right_click)
+        self.bind("<Configure>", self._configure)
         
         self.load_images()
         self.active_deck = None
@@ -618,10 +684,14 @@ class DeckStatisticsCanvas(ttk.Frame):
         self.win_color = '#4a9e5b'
         self.lose_color = '#7c23a6'
         self.column1_x = 0
-        self.column2_x = 150
-        self.column3_x = 300
-        self.column4_x = 450
+        self.column2_x = 0.25
+        self.column3_x = 0.50
+        self.column4_x = 0.75
         
+    def _configure(self, event):
+        self.canvas['width'] = event.width
+        self.canvas['height'] = event.height
+        self.refresh_canvas()
         
     def load_images(self):
         self.class_images = {}
@@ -694,19 +764,19 @@ class DeckStatisticsCanvas(ttk.Frame):
                 self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
                                 fill = self.grid_color) # Top
                                 
-                self.canvas.create_image(self.column1_x, mean_row_y,
+                self.canvas.create_image(self.column1_x * width, mean_row_y,
                         anchor=tk.W, image= self.class_images[p_hero]
                 )
                 
-                self.canvas.create_text(self.column1_x + 20, mean_row_y,
+                self.canvas.create_text(self.column1_x * width + 20, mean_row_y,
                         anchor=tk.W, text = deck_name, font=self.font
                 )
                 
-                self.canvas.create_image(self.column2_x, mean_row_y,
+                self.canvas.create_image(self.column2_x * width, mean_row_y,
                         anchor=tk.W, image= self.class_images[o_hero]
                 )
                 
-                self.canvas.create_text(self.column2_x + 20, mean_row_y,
+                self.canvas.create_text(self.column2_x * width + 20, mean_row_y,
                         anchor=tk.W, text = hs.hero_dict[o_hero], font=self.font
                 )
                 
@@ -719,12 +789,12 @@ class DeckStatisticsCanvas(ttk.Frame):
                     color = self.lose_color
                     out_text = 'Loss'
                 
-                self.canvas.create_text(self.column3_x, mean_row_y,
+                self.canvas.create_text(self.column3_x * width, mean_row_y,
                         anchor=tk.W, text = out_text, font=self.font,
                         fill = color
                 )
                 
-                self.canvas.create_text(self.column4_x, mean_row_y,
+                self.canvas.create_text(self.column4_x * width, mean_row_y,
                         anchor=tk.W, text = date[0:19], font=self.font,
                 )
                 
@@ -735,11 +805,12 @@ class DeckStatisticsCanvas(ttk.Frame):
         # We need to make columns for the deck
         # the oponents deck, the outcome, and date
         # Draw the frame
+        self.canvas.delete(tk.ALL)
         self.draw_frame()
         if self.active_deck is not None:
             # Make a deck history page
             games_results = self.cursor.execute(
-                "SELECT * FROM match WHERE deck = ?", (self.active_deck,)
+                "SELECT * FROM match WHERE deck = ? ORDER BY date DESC", (self.active_deck,)
             )
             
             self.draw_results(games_results)
@@ -747,58 +818,11 @@ class DeckStatisticsCanvas(ttk.Frame):
         else:
             # Make a general history page
             games_results = self.cursor.execute(
-                "SELECT * FROM match"
+                "SELECT * FROM match ORDER BY date DESC"
             )
             self.draw_results(games_results)
             return
             
-class HeroSelector(ttk.Frame):
-    def __init__(self, master=None):
-        # Initialize
-        self.icon_width = 32
-        ttk.Frame.__init__(self, master, height = self.icon_width, width = self.icon_width* 9)
-        self.config(pad=0)
-        self.pack(fill=tk.X, expand=tk.TRUE)
-        
-        self.load_images()
-        self.create_labels()
-        self.active_class = None
-        
-        self.class_changed = []
-        
-        
-    def _left_click(self, event):
-        widget = event.widget
-        for l in self.labels:
-            l['background'] = self.def_color
-        self.active_class = self.labels[event.widget]
-        widget['background'] = 'blue'
-        for f in self.class_changed:
-            f(self.active_class)
-        return
-            
-    def _right_click(self, event):
-        pass
-        
-    def create_labels(self):
-        self.labels = {}
-        for i in range(1,10):
-             l = ttk.Label(self, image=self.class_images[i])
-             l.pack(side=tk.LEFT)
-             self.def_color = l['background']
-             l.bind('<Button-1>', self._left_click)
-             self.labels[l] = i
-             
-    def load_images(self):
-        self.class_images = {}
-        self.icon_size = self.icon_width
-        for i in range(1,10):
-            path = './images/tbl_{0}.png'.format(i)
-            im = PIL.Image.open(path)
-            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
-            im = PIL.ImageTk.PhotoImage(im)
-            self.class_images[i] = im
-            tk.Label(self, image=im)
 
 class Application(ttk.Frame):
     def __init__(self, master=None):
@@ -936,25 +960,22 @@ class Application(ttk.Frame):
         pw.columnconfigure(0, weight=1)
         pw.rowconfigure(0, weight=1)
         f1 = ttk.LabelFrame(pw, text='Decks')
-        f2 = ttk.LabelFrame(pw,text='Tracking')
+        f2 = ttk.LabelFrame(pw,text='History')
         self._deck_new_btn = ttk.Button(f1, text="New Deck", command=self._deck_new)
         self._deck_new_btn.pack(fill=tk.X)
         self._deck_edit_btn = ttk.Button(f1, text="Edit Deck", command=self._deck_edit)
         self._deck_edit_btn.pack(fill=tk.X)
         self._deck_del_btn = ttk.Button(f1, text="Delete Deck", command=self._deck_del)
         self._deck_del_btn.pack(fill=tk.X)
-        self._deck_tree = ttk.Treeview(f1, columns=('cls', 'name', 'tags'), displaycolumns=('cls name tags'), show='headings')
+        self._deck_tree = ttk.Treeview(f1, columns=('name'))
         #self._deck_tree.column("#0", width=10)
         self._deck_tree.bind("<Double-1>", self._deck_list_dbl_click)
-        self._deck_tree.column("cls", width=50)
         self._deck_tree.column("name", width=100)
-        self._deck_tree.column("tags", width=50)
-        self._deck_tree.heading("cls", text="Class")
         self._deck_tree.heading("name", text="Name")
-        self._deck_tree.heading("tags", text="Tags")
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
-        pw2 = ttk.PanedWindow(f2, orient=tk.HORIZONTAL)
-        pw2.pack(fill=tk.BOTH, expand=1)
+        self._deck_history = DeckStatisticsCanvas(self.cursor, f2, width= 600)
+        self._deck_history.pack(fill=tk.BOTH, expand= tk.TRUE)
+        self._deck_history.set_deck(None)
         # window = tk.Toplevel()
         # window.lift()
         # window.attributes("-topmost", True)
@@ -1106,23 +1127,32 @@ class Application(ttk.Frame):
         self.cards_played = []
         self._deck_treeview.reset_tracking()
         self._oppon_deck_treeview.set_deck({})
+        self._deck_history.refresh_canvas()
         self.players = None
         
     def _refresh_deck_list(self):
         rows = self.cursor.execute(sql_select_all_decks).fetchall()
+        self._deck_tree.delete(* self._deck_tree.get_children())
         if rows is not None:
-            self._deck_tree.delete(* self._deck_tree.get_children())
             for row in rows:
                 self._deck_tree.insert('', 'end', row['id'], 
-                values=('', row['name'], ''))
+                values=(row['name'],))
+        self._deck_tree.insert('', 'end', 'NoDeck', 
+        values=('No Active Deck'),)
+        
                 
     def _deck_list_dbl_click(self, event):
         #Load the deck for the tracker
         sel = self._deck_tree.selection()
         if len(sel) > 0:
             item = self._deck_tree.selection()[0]
-            self._deck_treeview.set_deck(load_deck_from_sql(self.cursor, item))
-            self.active_deck = item
+            if item != 'NoDeck':
+                self._deck_treeview.set_deck(load_deck_from_sql(self.cursor, item))
+                self.active_deck = item
+                self._deck_history.set_deck(int(item))
+            else:
+                self._deck_history.set_deck(None)
+                self._deck_treeview.set_deck({})
         return
     
     def _deck_del(self):
@@ -1140,21 +1170,24 @@ class Application(ttk.Frame):
         sel = self._deck_tree.selection()
         if len(sel) > 0:
             item = self._deck_tree.selection()[0]
+            if item == 'NoDeck':
+                return
             win = tk.Toplevel(takefocus=True)
             dc = DeckCreator(self.cursor, master=win)
             dc.update_deck = True
             dc.deck_id = item
             dc._static_canvas.set_deck(load_deck_from_sql(self.cursor, item))
             dc.update_num_cards()
-            dc._hero_class_list.get(0)
-            dc._hero_class_list.selection_set
+            data = self.cursor.execute("SELECT name, class FROM deck WHERE id = ?", (item,)).fetchone()
+            
+            dc._hero_class_list.set_label(int(data['class']))
+            dc._deck_name_entry.insert(tk.END, data['name'])
             self.wait_window(win)
             dc.update_deck = False
             dc.deck_id = None
             self.db.commit()
             #Refresh deck list
             self._refresh_deck_list()
-        return
 
 root = tk.Tk()
 root.title('ValueTracker')
