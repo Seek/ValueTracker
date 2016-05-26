@@ -67,22 +67,17 @@ class DeckStatisticsCanvas(ttk.Frame):
         ttk.Frame.__init__(self, master, **kwargs)
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
-        
-        xscrollbar = tk.Scrollbar(self, orient=tk.HORIZONTAL)
-        xscrollbar.grid(row=1, column=0, sticky=(tk.E, tk.W))
 
         yscrollbar = tk.Scrollbar(self)
         yscrollbar.grid(row=0, column=1, sticky=(tk.N,tk.S))
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
-                        xscrollcommand=xscrollbar.set,
                         yscrollcommand=yscrollbar.set,
                         width = self['width'],
                         height = self['height'])
 
         self.canvas.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
 
-        xscrollbar.config(command=self.canvas.xview)
         yscrollbar.config(command=self.canvas.yview)
 
         self.row_height = 20
@@ -94,8 +89,20 @@ class DeckStatisticsCanvas(ttk.Frame):
         self.bind("<Button-1>", self._left_click)
         self.bind("<Button-3>", self._right_click)
         
+        self.load_images()
+        
         self.editable = False
         
+        
+    def load_images(self):
+        self.class_images = {}
+        for i in range(1,10):
+            path = './images/tbl_{0}.gif'.format(i)
+            im = tk.PhotoImage(file=path)
+            print(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
+            
     def set_deck(self, deck_id):
         self.active_deck = deck_id
         self.refresh_canvas()
@@ -135,11 +142,26 @@ class DeckStatisticsCanvas(ttk.Frame):
             self.canvas.create_rectangle(x0, y0, x1, y1,
                                     fill="grey85", width=0)
             self.canvas.create_line(0, self.row_height, width, self.row_height,
-            fill='grey50')
+            fill='grey65')
             
-            for i, column in enumerate(columns):
-                self.canvas.create_line((i+1)*column_width, 0,
-                                       (i+1)*column_width, height, fill='grey50')
+            self.canvas.create_line(width * 0.15, 0, width * 0.15, height,
+            fill='grey65')
+            sel_class = 'SELECT class FROM hero WHERE id = ?'
+            for i, row in enumerate(rows):
+                deck = row['deck']
+                opp_hero = row['opp_hero']
+                player_hero = row['player_hero']
+                opp_class = self.cursor.execute(sel_class, (opp_hero,)).fetchone()['class']
+                player_class = self.cursor.execute(sel_class, (player_hero,)).fetchone()['class']
+                print(player_class)
+                won = row['won']
+                mean_row_y = (i*self.row_height + (i+1)*self.row_height)/2
+                row_bottom_y = (i+1)*self.row_height
+                self.canvas.create_line(0, row_bottom_y, width,row_bottom_y,
+                fill='grey65') 
+                self.canvas.create_image(0, mean_row_y, 
+                                image=self.class_images[player_class])
+               
         return
         
 
@@ -161,7 +183,7 @@ class Application(ttk.Frame):
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
         self.wid = DeckStatisticsCanvas(self.cursor, self, width=600, height=600)
-        self.wid.canvas.configure(scrollregion=(0, 0, 600, 600))
+        self.wid.pack(fill=tk.BOTH, expand=tk.TRUE)
         # deck = load_deck_from_sql(self.cursor, 4)
         self.wid.set_deck(2)
     
