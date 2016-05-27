@@ -485,7 +485,7 @@ class DeckBuilderCardEntry(ttk.Entry):
             results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
         else:
             search = '%'+self.var.get()+'%'
-            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND player_class = ?", (search, self.hero_class))
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND (player_class = ? OR player_class = -1)", (search, self.hero_class))
         rows = results.fetchmany(10)
         return rows
         
@@ -606,7 +606,7 @@ class DeckCreator(ttk.Frame):
         elif self._deck_name_entry.get() == '' and self.update_deck is False:
             print('No name given')
             return
-        elif len(self._hero_class_list.curselection()) < 1 and self.update_deck is False:
+        elif self._hero_class_list.active_class is None and self.update_deck is False:
             print('No class selected')
             return
         elif self.update_deck is True:
@@ -615,9 +615,7 @@ class DeckCreator(ttk.Frame):
             return
         else:
             # Write to db
-            item = self._hero_class_list.curselection()[0]
-            herostr = self._hero_class_list.get(item)
-            heronum = hs.hero_dict_names[herostr]
+            heronum = self._hero_class_list.active_class
             deck = self.cursor.execute(sql_select_deck_by_name, 
                         ('%' + self._deck_name_entry.get() +'%',)).fetchone()
             if deck is not None:
@@ -657,7 +655,8 @@ class DeckStatisticsCanvas(ttk.Frame):
         yscrollbar.grid(row=0, column=1, sticky=(tk.N,tk.S))
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
-                        yscrollcommand=yscrollbar.set,
+                        yscrollcommand=yscrollbar.set, 
+                        scrollregion=(0, 0, self['width'], 1000),
                         width = self['width'],
                         height = self['height'])
 
@@ -684,8 +683,8 @@ class DeckStatisticsCanvas(ttk.Frame):
         self.win_color = '#4a9e5b'
         self.lose_color = '#7c23a6'
         self.column1_x = 0
-        self.column2_x = 0.25
-        self.column3_x = 0.50
+        self.column2_x = 0.4
+        self.column3_x = 0.6
         self.column4_x = 0.75
         
     def _configure(self, event):
@@ -760,10 +759,19 @@ class DeckStatisticsCanvas(ttk.Frame):
                 row_top_y = i*self.row_height
                 row_bottom_y = (i+1)*self.row_height
                 mean_row_y = (row_top_y + row_bottom_y)/2
+                
+                color = 'white'
+                if i % 2 == 0:
+                    color = 'grey85'
+                    
+                self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                                fill = color, width = 0)
+                
+                
                 #Draw bottom of row
-                self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
-                                fill = self.grid_color) # Top
-                                
+                id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                 fill = self.grid_color, tags=('grid_line_bot',)) # Top
+                self.canvas.tag_raise('grid_line_bot')
                 self.canvas.create_image(self.column1_x * width, mean_row_y,
                         anchor=tk.W, image= self.class_images[p_hero]
                 )
@@ -806,7 +814,7 @@ class DeckStatisticsCanvas(ttk.Frame):
         # the oponents deck, the outcome, and date
         # Draw the frame
         self.canvas.delete(tk.ALL)
-        self.draw_frame()
+        #self.draw_frame()
         if self.active_deck is not None:
             # Make a deck history page
             games_results = self.cursor.execute(
@@ -960,7 +968,7 @@ class Application(ttk.Frame):
         pw.columnconfigure(0, weight=1)
         pw.rowconfigure(0, weight=1)
         f1 = ttk.LabelFrame(pw, text='Decks')
-        f2 = ttk.LabelFrame(pw,text='History')
+        f2 = ttk.LabelFrame(pw,text='History', pad= 6)
         self._deck_new_btn = ttk.Button(f1, text="New Deck", command=self._deck_new)
         self._deck_new_btn.pack(fill=tk.X)
         self._deck_edit_btn = ttk.Button(f1, text="Edit Deck", command=self._deck_edit)
@@ -1159,6 +1167,8 @@ class Application(ttk.Frame):
         sel = self._deck_tree.selection()
         if len(sel) > 0:
             item = self._deck_tree.selection()[0]
+            if item == 'NoDeck':
+                return
             result = tk.messagebox.askyesno("Delete Deck?","Are you sure you want to delete?")
             if result is True:
                 self.cursor.execute(sql_delete_deck, (item,))
