@@ -92,13 +92,19 @@ def save_deck_to_sql(cursor, deck, table):
     insert_str = sql_insert_card_into_deck.format(table)
     select_str = sql_select_card_from_deck.format(table)
     update_str = sql_update_card_in_deck.format(table)
+    all_str = "SELECT * FROM {0}".format(table)
+    # We need to do two passes, one to delete cards and another to add/update
     for card in deck.values():
         row = cursor.execute(select_str, ('%' + card[0].id +'%',)).fetchone()
         if row is None:
             cursor.execute(insert_str, (card[0].id, card[1]))
         else:
             cursor.execute(update_str, (card[1],'%' + card[0].id +'%'))
-            print('Updated ' + card[0].id + 'to ' + str(card[1]))
+    deck_cards = cursor.execute(all_str).fetchall()
+    for c in deck_cards:
+        if c['card'] not in deck:
+            cursor.execute('DELETE FROM {0} WHERE card = ?'.format(table), (c['card'],))
+    
            
 
 class DeckCanvas(tk.Canvas):
@@ -1146,7 +1152,7 @@ class Application(ttk.Frame):
                 self._deck_tree.insert('', 'end', row['id'], 
                 values=(row['name'],))
         self._deck_tree.insert('', 'end', 'NoDeck', 
-        values=('No Active Deck'),)
+        values=('No Active Deck',))
         
                 
     def _deck_list_dbl_click(self, event):
