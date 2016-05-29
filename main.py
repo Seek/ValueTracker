@@ -21,10 +21,28 @@ import hs
 import copy
 import json
 import PIL
-from PIL import ImageTk
+from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageTk
 import re
-import log_parser
 
+def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
+    w,h = font.getsize(text)
+    im = Image.new('RGBA', (w+2,h), (255,255,255,0))
+    draw = ImageDraw.Draw(im)
+    x = 2
+    y = -2
+    # thin border
+    shadowcolor = (0,0,0,255)
+    draw.text((x-1, y), text, font=font, fill=outline_fill)
+    draw.text((x+1, y), text, font=font, fill=outline_fill)
+    draw.text((x, y-1), text, font=font, fill=outline_fill)
+    draw.text((x, y+1), text, font=font, fill=outline_fill)
+    # thicker border
+    draw.text((x-1, y-1), text, font=font, fill=outline_fill)
+    draw.text((x+1, y-1), text, font=font, fill=outline_fill)
+    draw.text((x-1, y+1), text, font=font, fill=outline_fill)
+    draw.text((x+1, y+1), text, font=font, fill=outline_fill)
+    draw.text((x,y), text, fill=text_fill, font=font)
+    return im
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
 # context = ssl._create_unverified_context()
@@ -120,6 +138,7 @@ class DeckCanvas(tk.Canvas):
         self.card_clicked = []
         self.images = {}
         self.image_store = []
+        self.tmp_img = []
         # Deck options
         self.editable = False
         self.static_deck = {}
@@ -134,11 +153,11 @@ class DeckCanvas(tk.Canvas):
         self.drawn_card_color = '#BBFF8B'
         # Load legendary star
         self.star_image = tk.PhotoImage(file='./star.gif')
-        self.tmp = ttk.Label(self, image=self.star_image)
         
         # GUI options TODO: Move to configuration file
         self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
         self.font = tk.font.Font(family='Helvetica', size=11, weight='bold')
+        self.pil_font = ImageFont.truetype('FiraSans-Regular.otf', 16)
         
         # Given in percentage of the width
         self.name_text_offset_x = 5
@@ -170,6 +189,7 @@ class DeckCanvas(tk.Canvas):
         
     def reset_tracking(self):
         self.active_deck = copy.deepcopy(self.static_deck)
+        self.tmp_img = []
         self.refresh_canvas()
     
     def set_deck(self, deck):
@@ -268,11 +288,25 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    if 'card_name' in tags:
-                        self.itemconfigure(item, fill=self.drawn_card_color)
+                    if 'name_img' in tags:
+                        x, y = self.coords(item)
+                        self.delete(item)
+                        img = ImageTk.PhotoImage(render_text(self.active_deck[card_id][0].name,
+                                self.pil_font, self.drawn_card_color))
+                        self.tmp_img.append(img)
+                        self.create_image(x,y,  image=img,
+                                tags= (self.active_deck[card_id][0].id, 'name_img'), anchor=tk.W)
+                    if 'cost_img' in tags:
+                        x, y = self.coords(item)
+                        self.delete(item)
+                        img = ImageTk.PhotoImage(render_text(str(self.active_deck[card_id][0].cost),
+                                self.pil_font, self.drawn_card_color))
+                        self.tmp_img.append(img)
+                        self.create_image(x,y,  image=img,
+                                tags= (self.active_deck[card_id][0].cost, 'cost_img'), anchor=tk.CENTER)
                     if 'num_text' in tags:
-                        self.itemconfigure(item, 
-                        text=str(self.active_deck[card_id][1]))
+                        self.itemconfig(item, text=str(self.active_deck[card_id][1]))
+    
     def card_shuffled(self, card_id):
         if card_id in self.active_deck:
             self.active_deck[card_id][1] += 1
@@ -281,9 +315,15 @@ class DeckCanvas(tk.Canvas):
                 # Find the card text
                 for item in items:
                     tags = self.gettags(item)
-                    if 'card_name' in tags and 'drawn2' not in tags:
-                        self.itemconfigure(item, fill='white')
-                        self.dtag(item, 'drawn1')
+                    if 'name_img' in tags:
+                        if self.active_deck[card_id][1] == self.static_deck[card_id][1]:
+                            x, y = self.coords(item)
+                            self.delete(item)
+                            img = ImageTk.PhotoImage(render_text(self.active_deck[card_id][0].name,
+                                    self.pil_font))
+                            self.tmp_img.append(img)
+                            self.create_image(x,y,  image=img,
+                                    tags= (self.active_deck[card_id][0].id, 'name_img'), anchor=tk.W)
                     if 'num_text' in tags:
                         self.itemconfigure(item, 
                         text=str(self.active_deck[card_id][1]))
@@ -349,17 +389,21 @@ class DeckCanvas(tk.Canvas):
             # Draw cost text
             cost_text_x = int(self.cost_plate_size/2 * width)  + self.cost_text_offset_x
             cost_text_y = (y0+y1)/2 # The center of the plate
-            self.create_text(cost_text_x, cost_text_y, 
-                                text=str(card[0].cost),
-                                fill= 'white', anchor=tk.CENTER, font=self.font,
-                                tags=(card[0].id, 'cost_text'))
+            cost_img = ImageTk.PhotoImage(render_text(str(card[0].cost), self.pil_font))
+            self.tmp_img.append(cost_img)
+            self.create_image(cost_text_x, cost_text_y, 
+                                image = cost_img, anchor=tk.CENTER,
+                                tags=(card[0].id, 'cost_img'))
             # Draw the card name
             name_text_x = cost_plate_x1 + self.name_text_offset_x
-             # The center of the plate
-            self.create_text(name_text_x, name_text_y, text=card[0].name,
-                                fill= 'white', anchor=tk.W, font=self.font,
-                                tags=(card[0].id, 'card_name'))
-
+            # The center of the plate
+            name_img = ImageTk.PhotoImage(render_text(card[0].name, self.pil_font))
+            self.tmp_img.append(name_img)
+            # self.create_text(name_text_x, name_text_y, text=card[0].name,
+            #                     fill= 'white', anchor=tk.W, font=self.font,
+            #                     tags=(card[0].id, 'card_name'))
+            self.create_image(name_text_x, name_text_y,
+                            image=name_img,tags= (card[0].id, 'name_img'), anchor=tk.W)
             
             # Draw num  rectangle
             
@@ -982,10 +1026,10 @@ class Application(ttk.Frame):
         self._deck_edit_btn.pack(fill=tk.X)
         self._deck_del_btn = ttk.Button(f1, text="Delete Deck", command=self._deck_del)
         self._deck_del_btn.pack(fill=tk.X)
-        self._deck_tree = ttk.Treeview(f1, columns=('name'))
+        self._deck_tree = ttk.Treeview(f1, columns=('name'), show= ('headings',))
         #self._deck_tree.column("#0", width=10)
         self._deck_tree.bind("<Double-1>", self._deck_list_dbl_click)
-        self._deck_tree.column("name", width=100)
+        self._deck_tree.column("name", width=200)
         self._deck_tree.heading("name", text="Name")
         self._deck_tree.pack(fill=tk.BOTH, expand=1)
         self._deck_history = DeckStatisticsCanvas(self.cursor, f2, width= 600)

@@ -319,9 +319,11 @@ class Parser:
 
 class GameEvent(Enum):
     GameStart = 1
-    PlayerWon = 2
-    PlayerLoss = 3
-    PlayerTi3 = 4
+    GameEnd = 2
+    CardPlayed = 3
+    CardShuffled = 4
+    CardDrawn = 5
+    SecretPlayed = 6
     
     
 class Player:
@@ -332,8 +334,10 @@ class Player:
         self.high = high
         self.low = low
         self.name = name
+        self.player_class = player_class
+        self.player_hero = player_hero
     def __repr__(self):
-        return 'Player name: {0}'.format(self.name)
+        return 'Player name: {0}; Id {1}'.format(self.name, self.player_id)
     
 class GameEventGenerator:
     def __init__(self, parser):
@@ -356,6 +360,7 @@ class GameEventGenerator:
         self.local_player_found = False
         self.foreign_player_found = False
         self.first = True
+        self.last_block = None
         
     def add_queue(self, queue):
         self.queues.append(queue)
@@ -364,41 +369,75 @@ class GameEventGenerator:
         self.queues.append(queue)
             
     def on_tag_changed(self, entity, tag, value):
+        if tag == 'ZONE':
+            if 'player' in entity.tags:
+                p = None
+                if entity['player'] == self.players['local'].player_id:
+                    p =  self.players['local']
+                else:
+                    p = self.players['foreign']
+                if value == 'PLAY' and entity['zone'] == 'HAND':
+                    if 'cardId' in entity.tags:
+                        card = entity['cardId']
+                        module_logger.info('%s played %s',
+                                            p, card)
+                        for q in self.queues:
+                            q.put((GameEvent.CardPlayed, card, p))
+                if value == 'DECK' and entity['zone'] == 'HAND':
+                    if 'cardId' in entity.tags:
+                        card = entity['cardId']
+                        module_logger.info('%s shuffled %s',
+                                            p, card)
+                        for q in self.queues:
+                            q.put((GameEvent.CardShuffled, card, p))
+                if value == 'SECRET':
+                    module_logger.info('%s played a secret',
+                                            p)
+                    for q in self.queues:
+                        q.put((GameEvent.SecretPlayed, p))
         if tag == 'PLAYER_ID':
             if value == self.players['local'].player_id:
-                pdb.set_trace()
+                #pdb.set_trace()
                 self.players['local'].name = entity['name']
             else:
                 self.players['foreign'].name = entity['name']
             if self.players['local'].name:
                 if self.players['foreign'].name:
-                    pdb.set_trace()
                     for q in self.queues:
-                        q.put((GameEvent.GameStart, self.players['local'],
-                        self.players['foreign']))
+                        module_logger.info('A game has begun between the local player %s and the foreign player %s',
+                                             self.players['local'], self.players['foreign'])
+                        q.put((GameEvent.GameStart, self.players))
+        if tag == 'TURN':
+            if entity['name'] == 'GameEntity':
+                self.turn_num = int(value)
         if tag == 'PLAYSTATE':
             if value in ('WON', 'LOST', 'TIED'):
                 if self.in_game:
                     if entity['name'] != self.players['local'].name:
                         return
                     else:
-                        deltaT = datetime.datetime.now() - self.game_start_time
+                        deltaT = datetime.now() - self.game_start_time
                         duration = deltaT.total_seconds()
                         outcome = None
                         if value == 'WON':
-                            outcome = GameOutcome(True, self.first, duration, self.turn_num)
+                            outcome = (True, self.first, duration, self.turn_num)
                         else:
-                            outcome = GameOutcome(False, self.first, duration, self.turn_num)
+                            outcome = (False, self.first, duration, self.turn_num)
+                        module_logger.info('The game has ended outcome: %s',
+                                             outcome)
                         for q in self.queues:
-                            q.put(GameEvent(EventType.GameEnd, outcome))
-                        self._reset()
+                            q.put((GameEvent.GameEnd, outcome))
+                        self.reset_state()
                         return
+    
     def on_block_begin(self, entity, block_type, effect_index, target):
-        return
+        self.last_block = block_type
+        
+    def on_block_ent(self):
+        self.last_block = None
     
     def on_full_entity(self, entity):
         # Full entity
-        print(entity)
         if 'name' in entity.tags and self.local_player_found == False:
             playerid = entity['player']
             self.players['local'] = self.players[playerid]
@@ -421,16 +460,29 @@ class GameEventGenerator:
                 if entity['player'] == self.players['local'].player_id:
                     self.players['local'].player_class = int(m.group(1))
                     self.players['local'].player_hero = entity['name']
-                    logging.info('The local player is playing %s', self.players['local'].player_hero)
+                    module_logger.info('The local player is playing %s', self.players['local'].player_hero)
                     return
                 else:
                     self.players['foreign'].player_class = int(m.group(1))
                     self.players['foreign'].player_hero = entity['name']
-                    logging.info('The foreign player is playing %s', self.players['local'].player_hero)
+                    module_logger.info('The foreign player is playing %s', self.players['foreign'].player_hero)
                     return
 
     def on_show_entity(self, entity, cardId):
-        return
+        if self.last_block != 'JOUST':
+            if entity['player'] == self.players['foreign'].player_id:
+                    if entity['zone'] in ('DECK', 'HAND'):
+                        e = (cardId,  self.turn_num, entity['player'])
+                        module_logger.info('The foreign player played %s', cardId)
+                        for q in self.queues:
+                            q.put((GameEvent.CardPlayed, e))
+            if entity['player'] is self.players['local'].player_id:
+                if entity['zone'] == 'DECK':
+                    e = (cardId,  self.turn_num)
+                    module_logger.info('The local player drew %s', cardId)
+                    for q in self.queues:
+                        q.put((GameEvent.CardDrawn, e))
+        
     
     def on_hide_entity(self, entity, tag, value):
         return

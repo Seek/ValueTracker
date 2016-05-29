@@ -62,7 +62,142 @@ def load_deck_from_sql(cursor, id):
         tmp = cursor.execute(sql_select_card_by_id, (row['card'],)).fetchone()
         card = card_from_row(tmp)
         deck[card.id] = [card, int(row['num'])]
-    return deck    
+    return deck
+    
+class ResizeableCanvas(ttk.Frame):
+    def __init__(self, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                        width = self['width'],
+                        height = self['height'])
+        self.canvas.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        self.pack()
+        self.canvas['bg'] = 'white'
+        self.bind("<Configure>", self.on_configure)
+        
+    def on_configure(self, event):
+        self.canvas['width'] = event.width
+        self.canvas['height'] = event.height
+        self.refresh_canvas()
+        
+    def refresh_canvas(self):
+        pass
+        
+class DeckStatsCanvas(ResizeableCanvas):
+    def __init__(self, cursor, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.active_deck = None
+        self.cursor = cursor
+        self.row_height = 20
+        self.font = tk.font.Font(family='Helvetica', size=10, weight = 'bold')
+        self.grid_color = "#84aad9"
+        self.win_color = '#4a9e5b'
+        self.lose_color = '#7c23a6'
+        self.column1_x = 0
+        self.column2_x = 0.4
+        self.column3_x = 0.6
+        self.column4_x = 0.75
+        self.class_images = {}
+        self.icon_size = 16
+        for i in range(1,10):
+            path = './images/tbl_{0}.png'.format(i)
+            im = PIL.Image.open(path)
+            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
+            im = PIL.ImageTk.PhotoImage(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
+        
+    def set_deck(self, deck_id):
+        self.active_deck = deck_id
+        self.refresh_canvas()
+        
+    def refresh_canvas(self):
+        num_rows = 0
+        width = self.canvas.winfo_reqwidth()
+        height = self.canvas.winfo_reqheight()
+        if self.active_deck is not None:
+            results = self.cursor.execute('SELECT * from match WHERE deck = ?', (self.active_deck,))
+            rows = results.fetchall()
+            self.canvas.delete(tk.ALL)
+            vals = list(hs.hero_dict.keys())
+            for i, v in enumerate(vals):
+                num_rows += 1
+                ids = self.cursor.execute('SELECT id FROM hero WHERE class = ?', (v,)).fetchall()
+                query = 'SELECT * FROM match WHERE deck = ? AND ('
+                for id in ids:
+                     query += 'opp_hero = {0} OR '.format(id['id'])
+                query = query[:-4]
+                query += ')'
+                print(query)
+                
+                matches = self.cursor.execute(query, (self.active_deck,)).fetchall()
+                total_num = len(matches)
+                total_wins = sum(1 for i in matches if i['won'] == 1)
+                # Calc
+                row_top_y = i*self.row_height
+                row_bottom_y = (i+1)*self.row_height
+                mean_row_y = (row_top_y + row_bottom_y)/2
+                
+                color = 'white'
+                if i % 2 == 0:
+                    color = 'grey85'
+                    
+                self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                                fill = color, width = 0)
+                
+                #Draw bottom of row
+                id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                 fill = self.grid_color, tags=('grid_line_bot',)) # Top
+                self.canvas.tag_raise('grid_line_bot')
+                self.canvas.create_image(0, mean_row_y,
+                        anchor=tk.W, image= self.class_images[v]
+                )
+                self.canvas.create_text(20, mean_row_y,
+                        anchor=tk.W, text = hs.hero_dict[v], font=self.font
+                )
+                if total_num == 0:
+                    win_rate = 'NA'
+                else:
+                    win_rate = total_wins/total_num
+                
+                self.canvas.create_text(self.column2_x * width, mean_row_y,
+                        anchor=tk.W, text = 'Win Rate: {0}'.format(win_rate), font=self.font
+                )
+                
+            # Draw the totals row
+            row_top_y = num_rows*self.row_height
+            row_bottom_y = (num_rows+1)*self.row_height
+            mean_row_y = (row_top_y + row_bottom_y)/2
+            self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                            fill = color, width = 0)
+            
+            #Draw bottom of row
+            id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                fill = self.grid_color, tags=('grid_line_bot',)) # Top
+            self.canvas.tag_raise('grid_line_bot')
+            self.canvas.create_text(0, mean_row_y,
+                    anchor=tk.W, text = 'Total', font=self.font
+            )
+            if len(rows) == 0:
+                win_rate = 'NA'
+            else:
+                win_rate = sum(1 for i in rows if i['won'] == 1)/len(rows)
+            
+            self.canvas.create_text(self.column2_x * width, mean_row_y,
+                    anchor=tk.W, text = 'Win Rate: {:0.3f}'.format(win_rate), font=self.font
+            )
+                
+        else:
+            return
+            # results = self.cursor.execute('SELECT * from match WHERE', (self.active_deck,))
+            # rows = results.fetchall()
+            # self.canvas.delete(tk.ALL)
+            
+    
+    
+        
 
 class Application(ttk.Frame):
     def __init__(self, master=None):
@@ -81,13 +216,13 @@ class Application(ttk.Frame):
         self.db = sqlite3.connect('stats.db')
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
-        # self.wid = DeckStatisticsCanvas(self.cursor, self, width=600, height=800)
-        # self.wid.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self.wid = DeckStatsCanvas(self.cursor, self, width=600, height=800)
+        self.wid.pack(fill=tk.BOTH, expand=tk.TRUE)
         # #deck = load_deck_from_sql(self.cursor, 2)
         # #self.wid.set_deck(deck)
-        # #self.wid.set_deck(2)
+        self.wid.set_deck(2)
         # self.wid.refresh_canvas()
-        self.wid = HeroSelector(self)
+        #self.wid = HeroSelector(self)
     
     def on_close(self):
         self.db.close()
