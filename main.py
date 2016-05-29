@@ -23,6 +23,7 @@ import json
 import PIL
 from PIL import ImageTk
 import re
+import log_parser
 
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
