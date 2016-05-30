@@ -1,6 +1,7 @@
 # GUI imports
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import scrolledtext
 from tkinter import font
@@ -25,23 +26,28 @@ from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageTk
 import re
 from controls import *
 
+CONFIG_FILE = 'config.json'
 
 class Application(ttk.Frame):
-
     def __init__(self, master=None):
         # Initialize
         ttk.Frame.__init__(self, master)
         self.master = master
-        self.master.columnconfigure(0, weight=1)
-        self.master.rowconfigure(0, weight=1)
-        self.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        self.pack(fill=tk.BOTH, expand=tk.TRUE)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Get our configuation and set up logging
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s')
-
+        self.app_config = {}
+        if os.path.isfile(CONFIG_FILE) is False:
+            logging.warning(
+                '{0} is missing, falling back on defaults'.format(CONFIG_FILE))
+        else:
+            with open(CONFIG_FILE, 'r') as file:
+                self.app_config = json.load(file)
+        
+        self._tracking_thread = None
+        
         # Initialize the gui
         self._init_database()
         self._create_widgets()
@@ -54,34 +60,27 @@ class Application(ttk.Frame):
         self.active_deck = None
 
     def load_settings(self):
-        self.config = {}
-        if os.path.isfile(CONFIG_FILE) is False:
-            logging.warn(
-                '{0} is missing, falling back on defaults'.format(CONFIG_FILE))
-        else:
-            with open(CONFIG_FILE, 'r') as file:
-                self.config = json.load(file)
         # Restore the old window
-        if 'main_window_geom' in self.config:
-            last_geom = self.config["main_window_geom"]
+        if 'main_window_geom' in self.app_config:
+            last_geom = self.app_config["main_window_geom"]
             self.master.geometry(last_geom)
-        if 'local_deck_geom' in self.config:
-            last_geom = self.config["local_deck_geom"]
+        if 'local_deck_geom' in self.app_config:
+            last_geom = self.app_config["local_deck_geom"]
             self._deck_tracker.win.geometry(last_geom)
-        if 'foreign_deck_geom' in self.config:
-            last_geom = self.config["foreign_deck_geom"]
+        if 'foreign_deck_geom' in self.app_config:
+            last_geom = self.app_config["foreign_deck_geom"]
             self._foreign_deck_tracker.win.geometry(last_geom)
 
     def save_settings(self):
         try:
-            self.config['main_window_geom'] = self.master.geometry()
-            self.config['local_deck_geom'] = self._deck_tracker.win.geometry()
-            self.config[
+            self.app_config['main_window_geom'] = self.master.geometry()
+            self.app_config['local_deck_geom'] = self._deck_tracker.win.geometry()
+            self.app_config[
                 'foreign_deck_geom'] = self._foreign_deck_tracker.win.geometry()
         except:
             pass
         with open(CONFIG_FILE, 'w') as file:
-            json.dump(self.config, file, indent=4, sort_keys=True)
+            json.dump(self.app_config, file, indent=4, sort_keys=True)
 
     def on_close(self):
         self.save_settings()
@@ -102,15 +101,32 @@ class Application(ttk.Frame):
         menu_file.add_separator()
         menubar.add_cascade(menu=menu_file, label='File')
         menubar.add_cascade(menu=menu_edit, label='Edit')
+        menu_file.add_command(label='Reset Tracking Thread', command=self._menu_rest_tracking)
         menu_file.add_command(label='Exit', command=self._menu_exit)
-        menu_edit.add_command(label='Preferences', command=self._menu_exit)
+        menu_edit.add_command(label='Preferences', command=self._menu_preferences)
+        menu_edit.add_command(label='Set path to Hearthstone logs', command=self._set_hs_log_path)
+        menu_edit.add_command(label='Set path to database', command=self._set_database_path)
 
     def _menu_exit(self):
-        self.master.quit()
+        self.on_close()
+        
+    def _menu_preferences(self):
+        return
+        
+    def _menu_rest_tracking(self):
+        self._end_tracking_thread()
+        self._start_tracking_thread()
 
-    def _empty(self):
-        pass
-
+    def _set_hs_log_path(self):
+        path = tk.filedialog.askdirectory(title="Set path to Hearthstone's log files")
+        if path != '':
+            self.app_config['path_to_hs_logs'] = path
+            
+    def _set_database_path(self):
+        path = tk.filedialog.askdirectory(title="Set path to Hearthstone's log files")
+        if path != '':
+            self.app_config['path_to_db'] = path
+        
     def _create_notebook(self):
         self._notebook = ttk.Notebook(master=self, height=800, width=1200)
         self._deck_frame = ttk.Frame(self._notebook)
@@ -213,21 +229,45 @@ class Application(ttk.Frame):
         pw.add(f2)
 
     def _init_database(self):
-        self.db = sqlite3.connect('stats.db')
+        self.path_to_db = 'stats.db'
+        if 'path_to_db' not in self.app_config:
+                logging.info('No path to database set, assuming the default')
+        else:
+            path_to_db = self.app_config['path_to_db']
+        self.db = sqlite3.connect(self.path_to_db)
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
 
     def _start_tracking_thread(self):
+        
         self._q = queue.Queue()
         self._exit_flag = threading.Event()
-        path = r'C:\Program Files (x86)\Hearthstone\Logs\Power.log'
-        self._tracking_thread = threading.Thread(target=hs.thread_func,
-                                                 args=(path, self._exit_flag, self._q))
-        self._tracking_thread.start()
+        if 'path_to_hs_logs' not in self.app_config:
+            tk.messagebox.showerror(
+                'Path to Hearthstone log directory not configured!',
+                "Please set the path to your Hearthstone log files. (Under Edit > Set HS log path)"
+            )
+            return
+        else:
+            path = self.app_config['path_to_hs_logs']
+            path += '/Power.log'
+            if os.path.isfile(path): 
+                logging.info('Opening {0}'.format(path))
+                self._tracking_thread = threading.Thread(target=hs.thread_func,
+                                                        args=(path, self._exit_flag, self._q))
+                logging.info('Starting tracking thread')
+                self._tracking_thread.start()
+            else:
+                tk.messagebox.showerror(
+                'Could not find Power.log',
+                "Check your path to Hearthstone's log files. (Under Edit > Set HS log path)"
+                )
 
     def _end_tracking_thread(self):
         self._exit_flag.set()
-        self._tracking_thread.join()
+        if self._tracking_thread:
+            logging.info('Killing tracking thread')
+            self._tracking_thread.join()
 
     def _update_gui(self):
         try:
@@ -238,9 +278,6 @@ class Application(ttk.Frame):
         except queue.Empty:
             pass
         self.after(100, self._update_gui)
-
-    def _check_db_exists(self):
-        return os.path.isfile()
 
     def _handle_event(self, event):
         etype = event[0]

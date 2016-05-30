@@ -181,7 +181,7 @@ def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255
 # req = urllib.request.urlopen(url, context=context)
 # f = req.read() // f would contain the json data
 
-CONFIG_FILE = 'config.json'
+
 Card = namedtuple('Card', ['id', 'name','rarity',
                              'cost', 'attack', 'health'])
                          

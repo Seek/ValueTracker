@@ -1,8 +1,8 @@
 {
     "foreign_deck_geom": "230x472+4+145",
-    "local_deck_geom": "279x665+1123+186",
-    "main_window_geom": "909x322+1951+171",
-    "path_to_hs_logs" : "C:\\Program Files (x86)\\Hearthstone\\Logs",
+    "interface_font": "/fonts/FiraSans-Regular.otf",
+    "local_deck_geom": "279x665+1642+1",
+    "main_window_geom": "1212x385+2036+66",
     "path_to_db": "/stats.db",
-    "interface_font" : "/fonts/FiraSans-Regular.otf"
+    "path_to_hs_logs": "C:/Program Files (x86)/Hearthstone/Logs"
 }
