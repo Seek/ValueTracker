@@ -24,6 +24,137 @@ import PIL
 from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageTk
 import re
 
+class ResizeableCanvas(ttk.Frame):
+    def __init__(self, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                        width = self['width'],
+                        height = self['height'])
+        self.canvas.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        self.canvas['bg'] = 'white'
+        self.bind("<Configure>", self.on_configure)
+        
+    def on_configure(self, event):
+        self.canvas['width'] = event.width
+        self.canvas['height'] = event.height
+        self.refresh_canvas()
+        
+    def refresh_canvas(self):
+        pass
+        
+class DeckStatsCanvas(ResizeableCanvas):
+    def __init__(self, cursor, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.active_deck = None
+        self.cursor = cursor
+        self.row_height = 20
+        self.font = tk.font.Font(family='Helvetica', size=10, weight = 'bold')
+        self.grid_color = "#84aad9"
+        self.win_color = '#4a9e5b'
+        self.lose_color = '#7c23a6'
+        self.column1_x = 0
+        self.column2_x = 0.4
+        self.column3_x = 0.6
+        self.column4_x = 0.75
+        self.class_images = {}
+        self.icon_size = 16
+        for i in range(1,10):
+            path = './images/tbl_{0}.png'.format(i)
+            im = PIL.Image.open(path)
+            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
+            im = PIL.ImageTk.PhotoImage(im)
+            self.class_images[i] = im
+            tk.Label(self, image=im)
+        
+        
+    def set_deck(self, deck_id):
+        self.active_deck = deck_id
+        self.refresh_canvas()
+        
+    def refresh_canvas(self):
+        num_rows = 0
+        width = self.canvas.winfo_reqwidth()
+        height = self.canvas.winfo_reqheight()
+        if self.active_deck is not None:
+            results = self.cursor.execute('SELECT * from match WHERE deck = ?', (self.active_deck,))
+            rows = results.fetchall()
+            self.canvas.delete(tk.ALL)
+            vals = list(hs.hero_dict.keys())
+            for i, v in enumerate(vals):
+                num_rows += 1
+                ids = self.cursor.execute('SELECT id FROM hero WHERE class = ?', (v,)).fetchall()
+                query = 'SELECT * FROM match WHERE deck = ? AND ('
+                for id in ids:
+                     query += 'opp_hero = {0} OR '.format(id['id'])
+                query = query[:-4]
+                query += ')'
+
+                
+                matches = self.cursor.execute(query, (self.active_deck,)).fetchall()
+                total_num = len(matches)
+                total_wins = sum(1 for i in matches if i['won'] == 1)
+                # Calc
+                row_top_y = i*self.row_height
+                row_bottom_y = (i+1)*self.row_height
+                mean_row_y = (row_top_y + row_bottom_y)/2
+                
+                color = 'white'
+                if i % 2 == 0:
+                    color = 'grey85'
+                    
+                self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                                fill = color, width = 0)
+                
+                #Draw bottom of row
+                id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                 fill = self.grid_color, tags=('grid_line_bot',)) # Top
+                self.canvas.tag_raise('grid_line_bot')
+                self.canvas.create_image(0, mean_row_y,
+                        anchor=tk.W, image= self.class_images[v]
+                )
+                self.canvas.create_text(20, mean_row_y,
+                        anchor=tk.W, text = hs.hero_dict[v], font=self.font
+                )
+                if total_num == 0:
+                    win_rate = 'NA'
+                else:
+                    win_rate = total_wins/total_num
+                
+                self.canvas.create_text(self.column2_x * width, mean_row_y,
+                        anchor=tk.W, text = 'Win Rate: {0}'.format(win_rate), font=self.font
+                )
+                
+            # Draw the totals row
+            row_top_y = num_rows*self.row_height
+            row_bottom_y = (num_rows+1)*self.row_height
+            mean_row_y = (row_top_y + row_bottom_y)/2
+            self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                            fill = 'white', width = 0)
+            
+            #Draw bottom of row
+            id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                                fill = self.grid_color, tags=('grid_line_bot',)) # Top
+            self.canvas.tag_raise('grid_line_bot')
+            self.canvas.create_text(20, mean_row_y,
+                    anchor=tk.W, text = 'Total', font=self.font
+            )
+            if len(rows) == 0:
+                win_rate = 'NA'
+                self.canvas.create_text(self.column2_x * width, mean_row_y,
+                        anchor=tk.W, text = 'Win Rate: NA', font=self.font
+                )
+            else:
+                win_rate = sum(1 for i in rows if i['won'] == 1)/len(rows)
+                self.canvas.create_text(self.column2_x * width, mean_row_y,
+                        anchor=tk.W, text = 'Win Rate: {:0.3f}'.format(win_rate), font=self.font
+                )
+
+                
+        else:
+            return
+
 def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
     w,h = font.getsize(text)
     im = Image.new('RGBA', (w+2,h), (255,255,255,0))
@@ -170,6 +301,7 @@ class DeckCanvas(tk.Canvas):
         self.num_plate_top_pad = 0.5
         self.num_plate_bot_pad  = 0.5
         self.max_label_size = 35
+        self.actual_height = 0
         
     def load_image(self, card_id):
         bar_file = card_id + '.png'
@@ -197,6 +329,7 @@ class DeckCanvas(tk.Canvas):
         self.active_deck = copy.deepcopy(deck)
         self.images = {}
         self.image_store = []
+        self.tmp_img = []
         for card in deck.values():
             self.load_image(card[0].id)
         self.refresh_canvas()
@@ -353,6 +486,7 @@ class DeckCanvas(tk.Canvas):
         # For now we will clear and completely redraw
         self.delete(tk.ALL)
         # Start redrawing
+        self.actual_height = 0
         for i, card in enumerate(cards_sorted):
             # Draw the back plate
             x0 = 0
@@ -430,6 +564,8 @@ class DeckCanvas(tk.Canvas):
                 self.create_image(num_text_x, num_text_y,
                 image=self.star_image,
                 tags= (card[0].id,))
+                
+            self.actual_height = y1
                 
 class FloatingDeckCanvas():
     def __init__(self):
@@ -989,10 +1125,17 @@ class Application(ttk.Frame):
         self._deck_frame.rowconfigure(0, weight=1)
         self._card_stats_frame.columnconfigure(0, weight=1)
         self._card_stats_frame.rowconfigure(0, weight=1)
+        self._stats_frame.columnconfigure(0, weight=1)
+        self._stats_frame.rowconfigure(0, weight=1)
         #Create each interface
         self._create_debug_frame()
         self._create_card_stats_frame()
         self._create_deck_frame()
+        self._create_stats_frame()
+        
+    def _create_stats_frame(self):
+        self._deck_stats = DeckStatsCanvas(self.cursor, self._stats_frame)
+        self._deck_stats.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
         
     def _create_debug_frame(self):
         pw = ttk.PanedWindow(self._debug_frame, orient=tk.HORIZONTAL)
@@ -1147,38 +1290,39 @@ class Application(ttk.Frame):
         
     def _write_game(self, gameoutcome):
         # Check if we have seen the opponent before
-        local = self.players['local']
-        foreign = self.players['foreign']
-        oppid = self.cursor.execute(sql_find_opponent, (foreign.high, foreign.low)).fetchone()
-        if oppid is None:
-            self.cursor.execute(sql_insert_opponent, (foreign.name,foreign.high, foreign.low))
-            oppid = self.cursor.lastrowid
-        else:
-            oppid = oppid['id']
         if self.active_deck is not None:
-            #We now have the player id, so we can write the match information
-            # First we need to get the correct hero information
-            local_hero = self.cursor.execute(sql_select_hero_by_name, 
-                            ('%' + local.hero_name + '%',)).fetchone()
-            foreign_hero = self.cursor.execute(sql_select_hero_by_name, 
-                            ('%' + foreign.hero_name + '%',)).fetchone()
-            # submit the data                
-            date = datetime.datetime.now()
-            
-            sql_data = (oppid, gameoutcome.first, gameoutcome.won, 
-            gameoutcome.duration, int(gameoutcome.turns),
-            date, foreign_hero['id'], local_hero['id'], self.active_deck)
-            self.cursor.execute(sql_insert_match, sql_data)
-            matchid = self.cursor.lastrowid
-            
-            #submit the cards
-            for card in self.cards_played:
-                local_player = False
-                if card.player == local.id:
-                    local_player = True
-                self.cursor.execute(sql_insert_card, (matchid,
-                                card.cardId, card.turn, local_player))
-        self.db.commit()
+            local = self.players['local']
+            foreign = self.players['foreign']
+            oppid = self.cursor.execute(sql_find_opponent, (foreign.high, foreign.low)).fetchone()
+            if oppid is None:
+                self.cursor.execute(sql_insert_opponent, (foreign.name,foreign.high, foreign.low))
+                oppid = self.cursor.lastrowid
+            else:
+                oppid = oppid['id']
+            if self.active_deck is not None:
+                #We now have the player id, so we can write the match information
+                # First we need to get the correct hero information
+                local_hero = self.cursor.execute(sql_select_hero_by_name, 
+                                ('%' + local.hero_name + '%',)).fetchone()
+                foreign_hero = self.cursor.execute(sql_select_hero_by_name, 
+                                ('%' + foreign.hero_name + '%',)).fetchone()
+                # submit the data                
+                date = datetime.datetime.now()
+                
+                sql_data = (oppid, gameoutcome.first, gameoutcome.won, 
+                gameoutcome.duration, int(gameoutcome.turns),
+                date, foreign_hero['id'], local_hero['id'], self.active_deck)
+                self.cursor.execute(sql_insert_match, sql_data)
+                matchid = self.cursor.lastrowid
+                
+                #submit the cards
+                for card in self.cards_played:
+                    local_player = False
+                    if card.player == local.id:
+                        local_player = True
+                    self.cursor.execute(sql_insert_card, (matchid,
+                                    card.cardId, card.turn, local_player))
+            self.db.commit()
         self._reset_game_state()
         
 
@@ -1209,8 +1353,10 @@ class Application(ttk.Frame):
                 self._deck_treeview.set_deck(load_deck_from_sql(self.cursor, item))
                 self.active_deck = item
                 self._deck_history.set_deck(int(item))
+                self._deck_stats.set_deck(int(item))
             else:
                 self._deck_history.set_deck(None)
+                self._deck_stats.set_deck(None)
                 self._deck_treeview.set_deck({})
         return
     
