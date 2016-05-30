@@ -1,0 +1,59 @@
+BEGIN TRANSACTION;
+CREATE TABLE `player` (
+	`id`	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	`name`	TEXT NOT NULL,
+	`high`	INTEGER NOT NULL,
+	`low`	INTEGER NOT NULL
+);
+CREATE TABLE "match" (
+	`id`	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	`opponent`	INTEGER NOT NULL,
+	`first`	INTEGER NOT NULL,
+	`won`	INTEGER NOT NULL,
+	`duration`	INTEGER NOT NULL,
+	`num_turns`	INTEGER NOT NULL,
+	`date`	DATETIME NOT NULL,
+	`opp_hero`	INTEGER NOT NULL,
+	`player_hero`	INTEGER NOT NULL,
+	`deck`	INTEGER NOT NULL,
+	FOREIGN KEY(`opponent`) REFERENCES `player`(`id`),
+	FOREIGN KEY(`opp_hero`) REFERENCES `hero`(`id`),
+	FOREIGN KEY(`player_hero`) REFERENCES `hero`(`id`),
+	FOREIGN KEY(`deck`) REFERENCES `deck`(`id`)
+);
+CREATE TABLE "hero" (
+	`id`	INTEGER NOT NULL UNIQUE,
+	`name`	TEXT NOT NULL,
+	`cardid`	TEXT NOT NULL,
+	`class`	INTEGER NOT NULL,
+	PRIMARY KEY(id)
+);
+CREATE TABLE "deck" (
+	`id`	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	`name`	TEXT NOT NULL,
+	`class`	INTEGER NOT NULL,
+	`tag1`	INTEGER,
+	`tag2`	INTEGER
+);
+CREATE TABLE "cards" (
+	`id`	TEXT NOT NULL,
+	`name`	TEXT NOT NULL,
+	`rarity`	TEXT NOT NULL,
+	`cost`	INTEGER NOT NULL,
+	`health`	INTEGER NOT NULL,
+	`attack`	INTEGER NOT NULL,
+	`set`	INTEGER NOT NULL,
+	`collectible`	INTEGER NOT NULL,
+	`type`	TEXT NOT NULL,
+	`player_class`	INTEGER NOT NULL,
+	PRIMARY KEY(id)
+);
+CREATE TABLE "card_played" (
+	`rowid`	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	`matchid`	INTEGER NOT NULL,
+	`cardid`	INTEGER NOT NULL,
+	`turn`	INTEGER NOT NULL,
+	`local`	INTEGER NOT NULL,
+	FOREIGN KEY(`cardid`) REFERENCES `cards`(`id`)
+);
+COMMIT;

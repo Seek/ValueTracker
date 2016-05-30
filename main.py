@@ -25,6 +25,8 @@ import PIL
 from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageTk
 import re
 from controls import *
+import db_ops
+import os
 
 CONFIG_FILE = 'config.json'
 
@@ -106,6 +108,7 @@ class Application(ttk.Frame):
         menu_edit.add_command(label='Preferences', command=self._menu_preferences)
         menu_edit.add_command(label='Set path to Hearthstone logs', command=self._set_hs_log_path)
         menu_edit.add_command(label='Set path to database', command=self._set_database_path)
+        menu_edit.add_command(label='Update card database', command=self._update_card_table)
 
     def _menu_exit(self):
         self.on_close()
@@ -123,9 +126,24 @@ class Application(ttk.Frame):
             self.app_config['path_to_hs_logs'] = path
             
     def _set_database_path(self):
-        path = tk.filedialog.askdirectory(title="Set path to Hearthstone's log files")
+        path = tk.filedialog.askopenfilename(title="Set path to Hearthstone's log files")
         if path != '':
             self.app_config['path_to_db'] = path
+            
+    def _update_card_table(self):
+        result = tk.messagebox.askyesno('Connect to internet?',
+                        """May I connect to the hearthstonejson website to download new card definitions?If not, you will be prompted to provide a proper .json file to update""")
+        if result == True:
+            cards = db_ops.download_cards()
+            db_ops.update_cards(self.cursor, cards)
+            tk.messagebox.showinfo('Update complete', 'The update was completed')
+        else:
+            path = tk.filedialog.askopenfilename(title='Path to cards.json')
+            if path != '':
+                with open(path, 'r', encoding='utf-8') as f:
+                    cards = json.load(f)
+                    db_ops.update_cards(self.cursor, cards)
+                        
         
     def _create_notebook(self):
         self._notebook = ttk.Notebook(master=self, height=800, width=1200)
@@ -237,9 +255,28 @@ class Application(ttk.Frame):
         self.db = sqlite3.connect(self.path_to_db)
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
+        if db_ops.check_db_integrity(self.cursor) == False:
+            result = tk.messagebox.askyesno('The database is malformed.\n Should I make a new one?')
+            if result:
+                self.db.close()
+                os.remove(path_to_db)
+                db = sqlite3.connect(path_to_db)
+                db.row_factory = sqlite3.Row
+                cursor = db.cursor()
+                cursor.executescript(db_ops.database_script)
+                db.commit()
+                cards = db_ops.download_cards()
+                db_ops.update_cards(cursor, cards)
+                db.commit()
+                self.db = db
+                self.cursor = cursor
+            else:
+                tk.messagebox.showwarning('Important Warning!',
+                                    'Using a malformed database will result in undefined behavior\n')
+                
+            
 
     def _start_tracking_thread(self):
-        
         self._q = queue.Queue()
         self._exit_flag = threading.Event()
         if 'path_to_hs_logs' not in self.app_config:

@@ -2,7 +2,7 @@
     "foreign_deck_geom": "230x472+4+145",
     "interface_font": "/fonts/FiraSans-Regular.otf",
     "local_deck_geom": "279x665+1642+1",
-    "main_window_geom": "1212x385+2036+66",
-    "path_to_db": "/stats.db",
+    "main_window_geom": "1212x656+527+167",
+    "path_to_db": "C:/Users/seekn/Desktop/ValueTracker/stats.db",
     "path_to_hs_logs": "C:/Program Files (x86)/Hearthstone/Logs"
 }

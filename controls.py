@@ -670,12 +670,12 @@ class DeckBuilderCardEntry(ttk.Entry):
 
     def comparison(self):
         if self.hero_class is None:
-            search = '%'+self.var.get()+'%'
-            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?", (search,))
+            search = self.var.get()+'%'
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND collectible = 1 ORDER BY lower(name) DESC LIMIT 10", (search,))
         else:
-            search = '%'+self.var.get()+'%'
-            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND (player_class = ? OR player_class = -1)", (search, self.hero_class))
-        rows = results.fetchmany(10)
+            search = self.var.get()+'%'
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND (player_class = ? OR player_class = -1) AND collectible = 1 ORDER BY lower(name) DESC LIMIT 10", (search, self.hero_class))
+        rows = results.fetchall()
         return rows
         
 class HeroSelector(ttk.Frame):
