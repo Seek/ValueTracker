@@ -158,9 +158,9 @@ class DeckStatsCanvas(ResizeableCanvas):
 
 def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
     w,h = font.getsize(text)
-    im = Image.new('RGBA', (w+8,h+8), (255,255,255,0))
+    im = Image.new('RGBA', (w+20,h+20), (0,0,0,0))
     draw = ImageDraw.Draw(im)
-    x = 2
+    x = 5
     y = 0
     # thin border
     shadowcolor = (0,0,0,255)
@@ -174,7 +174,8 @@ def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255
     draw.text((x-1, y+1), text, font=font, fill=outline_fill)
     draw.text((x+1, y+1), text, font=font, fill=outline_fill)
     draw.text((x,y), text, fill=text_fill, font=font)
-    return im
+    
+    return im.crop(im.getbbox())
 # How to pull json from Hearthstone JSON
 #  url = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json" // TODO: Add language support
 # context = ssl._create_unverified_context()
@@ -284,10 +285,9 @@ class DeckCanvas(tk.Canvas):
         }
         self.drawn_card_color = '#BBFF8B'
         # Load legendary star
-        self.star_image = tk.PhotoImage(file='./star.gif')
+        self.star_image = tk.PhotoImage(file='images/star.gif')
         
         # GUI options TODO: Move to configuration file
-        self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
         self.font = tk.font.Font(family='Helvetica', size=11, weight='bold')
         self.pil_font = ImageFont.truetype('fonts/FiraSans-Regular.otf', 16)
         

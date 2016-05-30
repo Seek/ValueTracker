@@ -54,9 +54,9 @@ class Application(ttk.Frame):
         self._init_database()
         self._create_widgets()
         self._create_menu()
-        self.load_settings()
         self._start_tracking_thread()
         self._update_gui()
+        self.load_settings()
         self._refresh_deck_list()
         self._reset_game_state()
         self.active_deck = None
@@ -69,10 +69,19 @@ class Application(ttk.Frame):
         if 'local_deck_geom' in self.app_config:
             last_geom = self.app_config["local_deck_geom"]
             self._deck_tracker.win.geometry(last_geom)
+            self._deck_tracker.deck_canvas.refresh_canvas()
         if 'foreign_deck_geom' in self.app_config:
             last_geom = self.app_config["foreign_deck_geom"]
             self._foreign_deck_tracker.win.geometry(last_geom)
-
+            self._foreign_deck_tracker.deck_canvas.refresh_canvas()
+        if 'deck_bar_font' in self.app_config:
+            font_size = 16
+            if "deck_bar_font_size" in self.app_config:
+                font_size = self.app_config['deck_bar_font_size']
+            self._deck_tracker.deck_canvas.pil_font = ImageFont.truetype(
+                                    self.app_config['deck_bar_font'], font_size)
+            self._deck_tracker.deck_canvas.refresh_canvas()
+            self._foreign_deck_tracker.deck_canvas.refresh_canvas()
     def save_settings(self):
         try:
             self.app_config['main_window_geom'] = self.master.geometry()
@@ -100,18 +109,27 @@ class Application(ttk.Frame):
         self.master['menu'] = menubar
         menu_file = tk.Menu(menubar)
         menu_edit = tk.Menu(menubar)
-        menu_file.add_separator()
+        #menu_file.add_separator()
         menubar.add_cascade(menu=menu_file, label='File')
         menubar.add_cascade(menu=menu_edit, label='Edit')
         menu_file.add_command(label='Reset Tracking Thread', command=self._menu_rest_tracking)
         menu_file.add_command(label='Exit', command=self._menu_exit)
+        menu_edit.add_command(label='Reload Configuration', command=self._reload_config)
         menu_edit.add_command(label='Preferences', command=self._menu_preferences)
         menu_edit.add_command(label='Set path to Hearthstone logs', command=self._set_hs_log_path)
         menu_edit.add_command(label='Set path to database', command=self._set_database_path)
         menu_edit.add_command(label='Update card database', command=self._update_card_table)
-
     def _menu_exit(self):
         self.on_close()
+        
+    def _reload_config(self):
+        if os.path.isfile(CONFIG_FILE) is False:
+            logging.warning(
+                '{0} is missing, falling back on defaults'.format(CONFIG_FILE))
+        else:
+            with open(CONFIG_FILE, 'r') as file:
+                self.app_config = json.load(file)
+        self.load_settings()
         
     def _menu_preferences(self):
         return
@@ -216,7 +234,6 @@ class Application(ttk.Frame):
         self._deck_del_btn.pack(fill=tk.X)
         self._deck_tree = ttk.Treeview(
             f1, columns=('name'), show=('headings',))
-        # self._deck_tree.column("#0", width=10)
         self._deck_tree.bind("<Double-1>", self._deck_list_dbl_click)
         self._deck_tree.column("name", width=200)
         self._deck_tree.heading("name", text="Name")
@@ -224,25 +241,13 @@ class Application(ttk.Frame):
         self._deck_history = DeckStatisticsCanvas(self.cursor, f2, width=600)
         self._deck_history.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_history.set_deck(None)
-        # window = tk.Toplevel()
-        # window.lift()
-        # window.attributes("-topmost", True)
-        # window.attributes("-alpha", 0.90)
-
-        # window.overrideredirect(1) #Remove border
-        #window.call('wm', 'attributes', '.', '-topmost', '1')
         self._deck_tracker = FloatingDeckCanvas()
         self._foreign_deck_tracker = FloatingDeckCanvas()
         self._deck_treeview = self._deck_tracker.deck_canvas
-        #self._deck_treeview = DeckCanvas(window, width=400, height= 800)
         self._deck_treeview.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_treeview.editable = False
-        #self._deck_treeview.pack(fill=tk.BOTH, expand=1)
         self._oppon_deck_treeview = self._foreign_deck_tracker.deck_canvas
         self._oppon_deck_treeview.editable = True
-        # self._deck_treeview.add_card('BRM_002')
-        # self._deck_treeview.card_drawn('BRM_002')
-        # self._deck_treeview.card_played('BRM_002')
         pw.add(f1)
         pw.add(f2)
 
@@ -425,6 +430,7 @@ class Application(ttk.Frame):
         self._deck_treeview.reset_tracking()
         self._oppon_deck_treeview.set_deck({})
         self._deck_history.refresh_canvas()
+        self._deck_stats.refresh_canvas()
         self.players = None
 
     def _refresh_deck_list(self):
