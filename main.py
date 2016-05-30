@@ -157,10 +157,10 @@ class DeckStatsCanvas(ResizeableCanvas):
 
 def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
     w,h = font.getsize(text)
-    im = Image.new('RGBA', (w+2,h), (255,255,255,0))
+    im = Image.new('RGBA', (w+8,h+8), (255,255,255,0))
     draw = ImageDraw.Draw(im)
     x = 2
-    y = -2
+    y = 0
     # thin border
     shadowcolor = (0,0,0,255)
     draw.text((x-1, y), text, font=font, fill=outline_fill)
@@ -288,7 +288,7 @@ class DeckCanvas(tk.Canvas):
         # GUI options TODO: Move to configuration file
         self.outline_font = tk.font.Font(family='Helvetica', size=12, weight='bold')
         self.font = tk.font.Font(family='Helvetica', size=11, weight='bold')
-        self.pil_font = ImageFont.truetype('FiraSans-Regular.otf', 16)
+        self.pil_font = ImageFont.truetype('fonts/FiraSans-Regular.otf', 16)
         
         # Given in percentage of the width
         self.name_text_offset_x = 5
@@ -603,6 +603,7 @@ class FloatingDeckCanvas():
     def on_configure(self, event):
         self.deck_canvas['width'] = event.width
         self.deck_canvas['height'] = event.height
+        #self.deck_canvas.refresh_canvas()
     
     def dragwin(self,event):
         if self._in_resize:
