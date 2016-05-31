@@ -24,6 +24,119 @@ import PIL
 from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageTk
 import re
 
+CLASS_IMAGES = [Image.open('./images/tbl_{0}.png'.format(n)) for n in range(0,10)]
+CLASS_IMAGES_64 = [im.resize((64,64), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
+CLASS_IMAGES_32 = [im.resize((32,32), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
+CLASS_IMAGES_24 = [im.resize((24,24), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
+CLASS_IMAGES_16 = [im.resize((16,16), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
+SEL_HILITE = Image.open('./images/sel_highlight.png')
+SEL_HILITE_32 = SEL_HILITE.resize((32,32), PIL.Image.LANCZOS)
+
+class DeckSelectWidget(ttk.Frame):
+    def __init__(self, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+        yscrollbar = tk.Scrollbar(self)
+        yscrollbar.grid(row=0, column=1, sticky='nse')
+        
+        self.canvas = tk.Canvas(self, width = self['width'], height = self['height'],
+                                bd = 0, highlightthickness=0,
+                                yscrollcommand=yscrollbar.set,
+                                scrollregion=(0, 0, self['width'], 1000))
+        
+        self.canvas.grid(column=0, row=0, sticky='nswe')
+        yscrollbar.config(command=self.canvas.yview)
+        #self.canvas['bg'] = 'black'
+        # Setup 2 rows 
+        self.images = [ImageTk.PhotoImage(im) for im in CLASS_IMAGES_32]
+        self.canvas.bind('<Button-1>', self._canvas_clicked)
+        self.active_deck = None
+        self.hilite = ImageTk.PhotoImage(SEL_HILITE_32)
+        self.on_deck_selected = []
+        
+    def set_deck_list(self, decks):
+        """Decks should be a list opf dict like objects with keys name and player_class an integer"""
+        self.canvas.delete(tk.ALL)
+        i = 0
+        for deck in decks:
+            name = deck['name']
+            pc = deck['class']
+            id = deck['id']
+            self.canvas.create_image(0, i * 32,  image=self.images[pc], tags=(id, pc, 'image_{0}'.format(id),), anchor=tk.NW)
+            self.canvas.create_text(34, ((i  * 32) + (i+1)*32)/2,  text=name, tags=(id, pc,), anchor=tk.W)
+            i += 1
+            
+    def _canvas_clicked(self, event):
+        item = self.canvas.find_closest(event.x, event.y, halo=None, start=None)
+        if item:
+            tags =  self.canvas.gettags(item)
+            if tags:
+                id = tags[0]
+                if id == self.active_deck:
+                    self.active_deck = None
+                    self.canvas.delete(self.canvas.find_withtag('hilite'))
+                    for f in self.on_deck_selected:
+                        f(None)
+                else:
+                    self.canvas.delete(self.canvas.find_withtag('hilite'))
+                    im = self.canvas.find_withtag('image_{0}'.format(id))
+                    x, y = self.canvas.coords(im)
+                    self.canvas.create_image(x,y,  image=self.hilite, tags=(id,'hilite',), anchor=tk.NW)
+                    self.active_deck = id
+                    for f in self.on_deck_selected:
+                        f(id)
+            
+class PlayerClassWidget(ttk.Frame):
+    def __init__(self, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        
+        self['width'] = 32 * 5
+        self['height'] = 32 * 2
+        self.canvas = tk.Canvas(self, width = self['width'], height = self['height'],
+                                bd = 0, highlightthickness=0)
+        self.canvas.grid(column=0, row=0, sticky='nswe')
+        # Setup 2 rows 
+        self.images = [ImageTk.PhotoImage(im) for im in CLASS_IMAGES_32]
+        self.hilite = ImageTk.PhotoImage(SEL_HILITE_32)
+        self.active_playerclass = 0
+        for i in range(0,5):
+            lbl_top = self.canvas.create_image(32* i, 0,  image=self.images[i], tags=(i,), anchor=tk.NW)
+            lbl_top = self.canvas.create_image(32* i, 32,  image=self.images[i+5], tags=(i+5,), anchor=tk.NW)
+        self.canvas.bind('<Button-1>', self._canvas_clicked)
+        
+        self.on_class_selected = []
+        
+    def _canvas_clicked(self, event):
+        item = self.canvas.find_closest(event.x, event.y, halo=None, start=None)
+        if item:
+            tags =  self.canvas.gettags(item)
+            if tags:
+                i = int(tags[0])
+                if self.active_playerclass == i:
+                    self.canvas.delete(self.canvas.find_withtag('hilite'))
+                    self.active_playerclass = 0
+                    for f in self.on_class_selected:
+                        f(0)
+                    return
+                elif i == 0:
+                    self.canvas.delete(self.canvas.find_withtag('hilite'))
+                    self.active_playerclass = 0
+                    for f in self.on_class_selected:
+                        f(0)
+                else:
+                    self.canvas.delete(self.canvas.find_withtag('hilite'))
+                    self.active_playerclass = i
+                    if i < 5:
+                        self.canvas.create_image(32* i, 0,  image=self.hilite, tags=(i, 'hilite', ), anchor=tk.NW)
+                    else:
+                        self.canvas.create_image(32* (i-5), 32,  image=self.hilite, tags=(i, 'hilite', ), anchor=tk.NW)
+                    for f in self.on_class_selected:
+                        f(i)
+
 
 class ResizeableCanvas(ttk.Frame):
     def __init__(self, master=None, **kwargs):

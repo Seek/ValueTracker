@@ -31,12 +31,12 @@ import os
 CONFIG_FILE = 'config.json'
 
 class Application(ttk.Frame):
-    def __init__(self, master=None):
+    def __init__(self, master=None, **kwargs):
         # Initialize
-        ttk.Frame.__init__(self, master)
+        ttk.Frame.__init__(self, master, **kwargs)
         self.master = master
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
         self.pack(fill=tk.BOTH, expand=tk.TRUE)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -105,7 +105,83 @@ class Application(ttk.Frame):
         self.master.destroy()
 
     def _create_widgets(self):
-        self._create_notebook()
+        self.pw = ttk.PanedWindow(self, width = self['width'],
+        height = self['height'], orient = tk.HORIZONTAL)
+        self.pw.grid(column=0, row=0, sticky='nsew')
+        deck_win_frame = ttk.Frame(self.pw, width = int(self['width'] * 0.2),
+                            height=self['height'])
+        
+        self._notebook = ttk.Notebook(self.pw, width=int(self['width']*0.7), height=self['height'])
+        f = ttk.Frame(self._notebook ,width=int(self['width']*0.7), height=self['height'])
+        
+        deck_filter_lblframe = ttk.LabelFrame(deck_win_frame, text='Deck Filter', width = 200, height = 74, pad=4)
+        deck_select_lblframe = ttk.LabelFrame(deck_win_frame, text='Decks', width = 200, height = 390, pad=4)
+        
+        
+        deck_select_lblframe.grid(row=5, column=0, sticky='nwse')
+        self.deck_filter_widget = PlayerClassWidget(deck_filter_lblframe, width= 5*32, height = 64)
+        self.deck_filter_widget.on_class_selected.append(self.on_deck_filter)
+        ttk.Button(deck_win_frame, text='Import Deck').grid(column=0, row=0, sticky='ew')
+        ttk.Button(deck_win_frame, text='New Deck', command=self._deck_new).grid(column=0, row=1, sticky='ew')
+        ttk.Button(deck_win_frame, text='Edit Deck', command=self._deck_edit).grid(column=0, row=2, sticky='ew')
+        ttk.Button(deck_win_frame, text='Delete Deck', command=self._deck_del).grid(column=0, row=3, sticky='ew')
+        self.deck_filter_widget.grid(row=4, column=0, sticky='nwe')
+        self.deck_select_widget = DeckSelectWidget(deck_select_lblframe, width = 150,
+                            height=390)
+        self.deck_select_widget.on_deck_selected.append(self.on_deck_select)
+        
+        self.deck_select_widget.grid(row=0, column=0, sticky='nwse')
+        deck_filter_lblframe.grid(row=4, column=0, sticky='nwe')
+        f.grid(column=0, row=0, sticky='nsew')
+        # Config notebook
+        self._notebook .columnconfigure(0, weight=1)
+        self._notebook .rowconfigure(0, weight=1)
+        # Config frame
+        deck_win_frame.columnconfigure(0, weight=1)
+        deck_win_frame.rowconfigure(0, weight=1, minsize=20)
+        deck_win_frame.rowconfigure(1, weight=1)
+        deck_win_frame.rowconfigure(2, weight=1)
+        deck_win_frame.rowconfigure(3, weight=1)
+        deck_win_frame.rowconfigure(4, weight=1)
+        deck_win_frame.rowconfigure(5, weight=1)
+        deck_filter_lblframe.rowconfigure(0, weight=1)
+        deck_select_lblframe.rowconfigure(0, weight=1)
+        deck_filter_lblframe.columnconfigure(0, weight=1)
+        deck_select_lblframe.columnconfigure(0, weight=1)
+        decks = self.cursor.execute("SELECT id,name, class FROM deck").fetchall()
+        self.deck_select_widget.set_deck_list(decks)
+        self._notebook.add(f, text='Test')
+        
+        self._deck_frame = ttk.Frame(self._notebook)
+        self._stats_frame = ttk.Frame(self._notebook)
+        self._data_frame = ttk.Frame(self._notebook)
+        self._card_stats_frame = ttk.Frame(self._notebook)
+        self._debug_frame = ttk.Frame(self._notebook)
+        self._notebook.add(self._deck_frame, text='Decks')
+        self._notebook.add(self._stats_frame, text='Statistics')
+        self._notebook.add(self._data_frame, text='Data')
+        self._notebook.add(self._card_stats_frame, text='Card Statistics')
+        self._notebook.add(self._debug_frame, text='Debug')
+        self._notebook.columnconfigure(0, weight=1)
+        self._notebook.rowconfigure(0, weight=1)
+        self._debug_frame.columnconfigure(0, weight=1)
+        self._debug_frame.rowconfigure(0, weight=1)
+        self._deck_frame.columnconfigure(0, weight=1)
+        self._deck_frame.rowconfigure(0, weight=1)
+        self._card_stats_frame.columnconfigure(0, weight=1)
+        self._card_stats_frame.rowconfigure(0, weight=1)
+        self._stats_frame.columnconfigure(0, weight=1)
+        self._stats_frame.rowconfigure(0, weight=1)
+        # Create each interface
+        self._create_debug_frame()
+        self._create_card_stats_frame()
+        self._create_deck_frame()
+        self._create_stats_frame()
+        self.pw.add(deck_win_frame)
+        self.pw.add(self._notebook )
+        
+    # def _create_widgets(self):
+    #     self._create_notebook()
 
     def _create_menu(self):
         menubar = tk.Menu(self.master)
@@ -226,27 +302,8 @@ class Application(ttk.Frame):
         self._card_stats_entry.grid(column=0, row=0, sticky=(tk.N, tk.W))
 
     def _create_deck_frame(self):
-        pw = ttk.PanedWindow(self._deck_frame, orient=tk.HORIZONTAL)
-        pw.grid(column=0, row=0, sticky=(tk.N, tk.S, tk.W, tk.E))
-        pw.columnconfigure(0, weight=1)
-        pw.rowconfigure(0, weight=1)
-        f1 = ttk.LabelFrame(pw, text='Decks')
-        f2 = ttk.LabelFrame(pw, text='History', pad=6)
-        self._deck_new_btn = ttk.Button(
-            f1, text="New Deck", command=self._deck_new)
-        self._deck_new_btn.pack(fill=tk.X)
-        self._deck_edit_btn = ttk.Button(
-            f1, text="Edit Deck", command=self._deck_edit)
-        self._deck_edit_btn.pack(fill=tk.X)
-        self._deck_del_btn = ttk.Button(
-            f1, text="Delete Deck", command=self._deck_del)
-        self._deck_del_btn.pack(fill=tk.X)
-        self._deck_tree = ttk.Treeview(
-            f1, columns=('name'), show=('headings',))
-        self._deck_tree.bind("<Double-1>", self._deck_list_dbl_click)
-        self._deck_tree.column("name", width=200)
-        self._deck_tree.heading("name", text="Name")
-        self._deck_tree.pack(fill=tk.BOTH, expand=1)
+        f2 = ttk.LabelFrame(self._deck_frame, text='History', pad=6)
+        f2.grid(column=0, row=0, sticky='nsew')
         self._deck_history = DeckStatisticsCanvas(self.cursor, f2, width=600)
         self._deck_history.pack(fill=tk.BOTH, expand=tk.TRUE)
         self._deck_history.set_deck(None)
@@ -257,8 +314,6 @@ class Application(ttk.Frame):
         self._deck_treeview.editable = False
         self._oppon_deck_treeview = self._foreign_deck_tracker.deck_canvas
         self._oppon_deck_treeview.editable = True
-        pw.add(f1)
-        pw.add(f2)
 
     def _init_database(self):
         self.path_to_db = 'stats.db'
@@ -437,63 +492,39 @@ class Application(ttk.Frame):
         self.players = None
 
     def _refresh_deck_list(self):
-        rows = self.cursor.execute(sql_select_all_decks).fetchall()
-        self._deck_tree.delete(* self._deck_tree.get_children())
-        if rows is not None:
-            for row in rows:
-                self._deck_tree.insert('', 'end', row['id'],
-                                       values=(row['name'],))
-        self._deck_tree.insert('', 'end', 'NoDeck',
-                               values=('No Active Deck',))
-
-    def _deck_list_dbl_click(self, event):
-        # Load the deck for the tracker
-        sel = self._deck_tree.selection()
-        if len(sel) > 0:
-            item = self._deck_tree.selection()[0]
-            if item != 'NoDeck':
-                self._deck_treeview.set_deck(
-                    load_deck_from_sql(self.cursor, item))
-                self.active_deck = item
-                self._deck_history.set_deck(int(item))
-                self._deck_stats.set_deck(int(item))
-            else:
-                self._deck_history.set_deck(None)
-                self._deck_stats.set_deck(None)
-                self._deck_treeview.set_deck({})
-        return
+        plr_class = self.deck_filter_widget.active_playerclass
+        if plr_class == 0:
+            decks = self.cursor.execute("SELECT id,name, class FROM deck ORDER BY name ASC").fetchall()
+            self.deck_select_widget.set_deck_list(decks)
+        else:
+            decks = self.cursor.execute("SELECT id,name, class FROM deck WHERE class = ? ORDER BY name ASC", (plr_class, )).fetchall()
+            self.deck_select_widget.set_deck_list(decks)
 
     def _deck_del(self):
-        sel = self._deck_tree.selection()
-        if len(sel) > 0:
-            item = self._deck_tree.selection()[0]
-            if item == 'NoDeck':
-                return
+        deck = self.deck_select_widget.active_deck
+        if deck is not None:
             result = tk.messagebox.askyesno(
                 "Delete Deck?", "Are you sure you want to delete?")
             if result is True:
-                self.cursor.execute(sql_delete_deck, (item,))
+                self.cursor.execute(sql_delete_deck, (deck,))
                 self._refresh_deck_list()
                 return
             else:
                 return
 
     def _deck_edit(self):
-        sel = self._deck_tree.selection()
-        if len(sel) > 0:
-            item = self._deck_tree.selection()[0]
-            if item == 'NoDeck':
-                return
+        deck = self.deck_select_widget.active_deck
+        if deck is not None:
             win = tk.Toplevel(takefocus=True)
             win.grid_rowconfigure(0, weight=1)
             win.grid_columnconfigure(0, weight=1)
             dc = DeckCreator(self.cursor, master=win)
             dc.update_deck = True
-            dc.deck_id = item
-            dc._static_canvas.set_deck(load_deck_from_sql(self.cursor, item))
+            dc.deck_id = deck
+            dc._static_canvas.set_deck(load_deck_from_sql(self.cursor, deck))
             dc.update_num_cards()
             data = self.cursor.execute(
-                "SELECT name, class FROM deck WHERE id = ?", (item,)).fetchone()
+                "SELECT name, class FROM deck WHERE id = ?", (deck,)).fetchone()
 
             dc._hero_class_list.set_label(int(data['class']))
             dc._deck_name_entry.insert(tk.END, data['name'])
@@ -503,10 +534,32 @@ class Application(ttk.Frame):
             self.db.commit()
             # Refresh deck list
             self._refresh_deck_list()
+            
+    def on_deck_filter(self, plr_class):
+        if plr_class == 0:
+            decks = self.cursor.execute("SELECT id,name, class FROM deck ORDER BY name ASC").fetchall()
+            self.deck_select_widget.set_deck_list(decks)
+        else:
+            decks = self.cursor.execute("SELECT id,name, class FROM deck WHERE class = ? ORDER BY name ASC", (plr_class, )).fetchall()
+            self.deck_select_widget.set_deck_list(decks)
+            
+    def on_deck_select(self, deck):
+        # Load the deck for the tracker
+        if deck is not None:
+            self._deck_treeview.set_deck(
+                load_deck_from_sql(self.cursor, str(deck)))
+            self.active_deck = deck
+            self._deck_history.set_deck(int(deck))
+            self._deck_stats.set_deck(int(deck))
+        else:
+            self.active_deck = None
+            self._deck_history.set_deck(None)
+            self._deck_stats.set_deck(None)
+            self._deck_treeview.set_deck({})
 
 root = tk.Tk()
 root.withdraw()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
-app = Application(master=root)
+app = Application(master=root, width=800, height=600)
 app.mainloop()
