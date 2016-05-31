@@ -136,7 +136,7 @@ def update_cards(cursor, cards):
         tmp = card.get('playerClass', None)
         player_class = -1
         if tmp is not None:
-            if player_class in hero_dict_names:
+            if tmp.lower() in hero_dict_names:
                 player_class = hero_dict_names[tmp.lower()]
         
         if card['type'] in ('MINION', 'SPELL', 'WEAPON'):

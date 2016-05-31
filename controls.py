@@ -515,7 +515,7 @@ class DeckCanvas(tk.Canvas):
             cost_plate_x1 = (width * self.cost_plate_size)
             self.create_rectangle(x0, y0+self.cost_plate_top_pad, 
                         cost_plate_x1,  y1-self.cost_plate_bot_pad,
-                        fill=self.rarity_to_color[card[0].rarity], 
+                        fill=self.rarity_to_color.get(card[0].rarity,'#b7c3d2'), 
                         width=0, tags=(card[0].id))
             
             self.create_line(cost_plate_x1, y0+self.cost_plate_top_pad, 
@@ -570,15 +570,15 @@ class DeckCanvas(tk.Canvas):
                 
 class FloatingDeckCanvas():
     def __init__(self):
-        self.win = tk.Toplevel(background='grey', padx = 4, pady =4)
+        self.win = tk.Toplevel(background='grey', padx = 0, pady =0)
         self.win.lift()
         self.win.attributes("-topmost", True)
         self.win.attributes("-alpha", 0.90)
         self.win.attributes("-toolwindow", True)
         self.win.attributes("-transparentcolor", 'grey')
-        self.deck_canvas = DeckCanvas(self.win, background='grey',
+        self.deck_canvas = DeckCanvas(self.win, background='grey', bd=0,
         highlightthickness=0, width=250, height=450)
-        self.deck_canvas.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self.deck_canvas.pack(fill=tk.BOTH, expand=tk.FALSE)
         self.win.update_idletasks()
         self.win.overrideredirect(True)
         self._offsetx = 0
@@ -674,7 +674,7 @@ class DeckBuilderCardEntry(ttk.Entry):
             results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND collectible = 1 ORDER BY lower(name) DESC LIMIT 10", (search,))
         else:
             search = self.var.get()+'%'
-            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ? AND (player_class = ? OR player_class = -1) AND collectible = 1 ORDER BY lower(name) DESC LIMIT 10", (search, self.hero_class))
+            results = self.cursor.execute(r"SELECT * FROM cards WHERE name LIKE ?  AND (player_class = ? AND collectible = 1 OR player_class = -1 AND collectible = 1)  ORDER BY lower(name) DESC LIMIT 10", (search, self.hero_class))
         rows = results.fetchall()
         return rows
         
@@ -739,6 +739,8 @@ class DeckCreator(ttk.Frame):
     def __init__(self, cursor, master=None):
         # Initialize
         ttk.Frame.__init__(self, master, width= 800, height = 600)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
         self.pack(fill=tk.BOTH, expand=1)
         self.cursor = cursor
         self.master = master
@@ -747,13 +749,13 @@ class DeckCreator(ttk.Frame):
         self.deck_id = None
         
     def _create_widgets(self):
-        f1 = ttk.Frame(self, width = 400, height = 600)
+        f1 = ttk.Frame(self, width = 250)
         f1.pack(side = tk.LEFT, fill=tk.BOTH, expand=tk.TRUE)
-        f2 = ttk.Frame(self, width = 400)
-        f2.pack(side = tk.RIGHT, fill=tk.BOTH, expand=tk.TRUE)
+        f2 = ttk.Frame(self, width = 250)
+        f2.pack(side = tk.LEFT, fill=tk.BOTH, expand=tk.TRUE)
         #f1.rowconfigure(1, weight=1)
-        self._entry_canvas = DeckCanvas(f1, width = 500, height = 500)
-        self._static_canvas = DeckCanvas(f2, width = 500, height = 500)
+        self._entry_canvas = DeckCanvas(f1, width = 400, height = 600)
+        self._static_canvas = DeckCanvas(f2, width = 400, height = 600)
         self._entry_canvas.editable = True
         self._static_canvas.editable = True
         self._entry_canvas.bind_card_clicked(self.add_card)

@@ -35,6 +35,8 @@ class Application(ttk.Frame):
         # Initialize
         ttk.Frame.__init__(self, master)
         self.master = master
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
         self.pack(fill=tk.BOTH, expand=tk.TRUE)
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -57,6 +59,7 @@ class Application(ttk.Frame):
         self._start_tracking_thread()
         self._update_gui()
         self.load_settings()
+        self.master.deiconify()
         self._refresh_deck_list()
         self._reset_game_state()
         self.active_deck = None
@@ -142,6 +145,8 @@ class Application(ttk.Frame):
         path = tk.filedialog.askdirectory(title="Set path to Hearthstone's log files")
         if path != '':
             self.app_config['path_to_hs_logs'] = path
+            self._end_tracking_thread()
+            self._start_tracking_thread()
             
     def _set_database_path(self):
         path = tk.filedialog.askopenfilename(title="Set path to Hearthstone's log files")
@@ -155,12 +160,16 @@ class Application(ttk.Frame):
             cards = db_ops.download_cards()
             db_ops.update_cards(self.cursor, cards)
             tk.messagebox.showinfo('Update complete', 'The update was completed')
+            self.db.commit()
         else:
             path = tk.filedialog.askopenfilename(title='Path to cards.json')
             if path != '':
                 with open(path, 'r', encoding='utf-8') as f:
                     cards = json.load(f)
                     db_ops.update_cards(self.cursor, cards)
+                    tk.messagebox.showinfo('Update complete', 'The update was completed')
+                    self.db.commit()
+                    self.db.commit()
                         
         
     def _create_notebook(self):
@@ -256,16 +265,16 @@ class Application(ttk.Frame):
         if 'path_to_db' not in self.app_config:
                 logging.info('No path to database set, assuming the default')
         else:
-            path_to_db = self.app_config['path_to_db']
+            self.path_to_db = self.app_config['path_to_db']
         self.db = sqlite3.connect(self.path_to_db)
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
         if db_ops.check_db_integrity(self.cursor) == False:
-            result = tk.messagebox.askyesno('The database is malformed.\n Should I make a new one?')
+            result = tk.messagebox.askyesno('The database is malformed.','Should I make a new one?')
             if result:
                 self.db.close()
-                os.remove(path_to_db)
-                db = sqlite3.connect(path_to_db)
+                os.remove(self.path_to_db)
+                db = sqlite3.connect(self.path_to_db)
                 db.row_factory = sqlite3.Row
                 cursor = db.cursor()
                 cursor.executescript(db_ops.database_script)
@@ -293,17 +302,11 @@ class Application(ttk.Frame):
         else:
             path = self.app_config['path_to_hs_logs']
             path += '/Power.log'
-            if os.path.isfile(path): 
-                logging.info('Opening {0}'.format(path))
-                self._tracking_thread = threading.Thread(target=hs.thread_func,
-                                                        args=(path, self._exit_flag, self._q))
-                logging.info('Starting tracking thread')
-                self._tracking_thread.start()
-            else:
-                tk.messagebox.showerror(
-                'Could not find Power.log',
-                "Check your path to Hearthstone's log files. (Under Edit > Set HS log path)"
-                )
+            logging.info('Opening {0}'.format(path))
+            self._tracking_thread = threading.Thread(target=hs.thread_func,
+                                                    args=(path, self._exit_flag, self._q))
+            logging.info('Starting tracking thread')
+            self._tracking_thread.start()
 
     def _end_tracking_thread(self):
         self._exit_flag.set()
@@ -337,7 +340,7 @@ class Application(ttk.Frame):
                                             data.cardId, data.turn),
                                         (None,))
                 tmp_card = card_from_id(data.cardId, self.cursor)
-                if tmp_card is not None:
+                if tmp_card is not None or tmp_card != '':
                     self._oppon_deck_treeview.add_card(tmp_card)
             self._debug_text.see(tk.END)
             self.cards_played.append(data)
@@ -482,6 +485,8 @@ class Application(ttk.Frame):
             if item == 'NoDeck':
                 return
             win = tk.Toplevel(takefocus=True)
+            win.grid_rowconfigure(0, weight=1)
+            win.grid_columnconfigure(0, weight=1)
             dc = DeckCreator(self.cursor, master=win)
             dc.update_deck = True
             dc.deck_id = item
@@ -500,6 +505,7 @@ class Application(ttk.Frame):
             self._refresh_deck_list()
 
 root = tk.Tk()
+root.withdraw()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
 app = Application(master=root)
