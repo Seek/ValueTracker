@@ -8,7 +8,7 @@ import hs
 from collections import namedtuple
 import pdb
 import PIL
-from PIL import ImageTk
+from PIL import ImageTk, Image
 import hs
 import logging
 import os.path
@@ -20,14 +20,7 @@ Card = namedtuple('Card', ['id', 'name','rarity',
 def card_from_row(row):
     return Card(row['id'], row['name'], row['rarity'], 
     row['cost'], row['attack'], row['health'])
-
-
-class HeroClassListbox(tk.Listbox):
-        def __init__(self, master, *args, **kwargs):
-            tk.Listbox.__init__(self, master,  height=9)
-            vals = list(hs.hero_dict.values())
-            for v in vals:
-                self.insert(tk.END, v)   
+  
 
 #SQL statements
 sql_select_card_by_id = "SELECT * FROM cards WHERE id LIKE ?"
@@ -64,31 +57,51 @@ def load_deck_from_sql(cursor, id):
         deck[card.id] = [card, int(row['num'])]
     return deck
     
+CLASS_IMAGES = {}
+class PlayerClassWidget(ttk.Frame):
+    def __init__(self, master=None, **kwargs):
+        ttk.Frame.__init__(self, master, **kwargs)
+        # Setup 2 rows 
+        self.labels = []
+        self.active_playerclass = 0
+        for i in range(5):
+            lbl_top = ttk.Label(self, width=16, text=str(i))
+            lbl_bot = ttk.Label(self, width=16, text=str(i+4))
+            lbl_top.grid(column=i, row=0, sticky='w')
+            lbl_bot.grid(column=i, row=1, sticky='w')
             
 class Application(ttk.Frame):
-    def __init__(self, master=None):
+    def __init__(self, master=None, **kwargs):
         # Initialize
-        ttk.Frame.__init__(self, master)
-        self.config(pad=0)
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.config(pad=4)
         self.master = master
         self.master.columnconfigure(0, weight=1)
         self.master.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
-        self.pack(fill=tk.BOTH, expand=tk.TRUE)
+        self.grid(column=0, row=0, sticky='nsew')
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         # self.deck_view = DeckCanvas(1, self, width=300, height=600)
         # self.deck_view.pack(fill=tk.BOTH, expand=tk.TRUE)
-        self.db = sqlite3.connect('stats.db')
+        self.db = sqlite3.connect('example_stats.db')
         self.db.row_factory = sqlite3.Row
         self.cursor = self.db.cursor()
-        self.wid = DeckStatsCanvas(self.cursor, self, width=600, height=800)
-        self.wid.pack(fill=tk.BOTH, expand=tk.TRUE)
-        # #deck = load_deck_from_sql(self.cursor, 2)
-        # #self.wid.set_deck(deck)
-        self.wid.set_deck(2)
-        # self.wid.refresh_canvas()
-        #self.wid = HeroSelector(self)
+        self.pw = ttk.PanedWindow(self, width = self['width'],
+        height = self['height'], orient = tk.HORIZONTAL)
+        self.pw.grid(column=0, row=0, sticky='nsew')
+        f1 = ttk.LabelFrame(self.pw, text='Deck Interface', width = int(self['width'] * 0.4),
+                            height=self['height'])
+        self.nb = ttk.Notebook(self.pw, width=int(self['width']*0.6), height=self['height'])
+        f = ttk.Frame(self.nb,width=int(self['width']*0.6), height=self['height'])
+        m = PlayerClassWidget(f1)
+        m.grid(row=0, column=0, sticky='nw')
+        f.grid(column=0, row=0, sticky='nsew')
+        self.nb.columnconfigure(0, weight=1)
+        self.nb.rowconfigure(0, weight=1)
+        self.nb.add(f, text='Test')
+        self.pw.add(f1)
+        self.pw.add(self.nb)
     
     def on_close(self):
         self.db.close()
@@ -97,5 +110,5 @@ class Application(ttk.Frame):
 root = tk.Tk()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
-app = Application(master=root)
+app = Application(master=root, width=800, height=600)
 app.mainloop()
