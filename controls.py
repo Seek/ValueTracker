@@ -181,6 +181,7 @@ class DeckStatsCanvas(ResizeableCanvas):
         self.refresh_canvas()
         
     def refresh_canvas(self):
+        from math import sqrt
         num_rows = 0
         width = self.canvas.winfo_reqwidth()
         height = self.canvas.winfo_reqheight()
@@ -232,11 +233,17 @@ class DeckStatsCanvas(ResizeableCanvas):
         self.canvas.create_text(self.column5_x * width, mean_row_y,
                 anchor=tk.W, text = 'Mean # of Turns', font=self.font,
         )
-            
+        total_wins = 0
+        total_losses = 0
+        total_turns = 0
+        total_duration = 0
+        total_n = 0
         for i in range(1,10):
             tmp = data[i]
             wins = sum(1 for row in tmp if row['won'] == 1)
+            total_wins += wins
             total = len(tmp)
+            total_n += total
             losses = total - wins
             # Calc
             row_top_y = (i)*self.row_height
@@ -267,29 +274,77 @@ class DeckStatsCanvas(ResizeableCanvas):
                     anchor=tk.W, text = "{0}/{1}".format(wins, losses), font=self.font
             )
             winrate = 'N/A'
+            dur = "N/A"
+            turns = "N/A"
             if total > 0:
                 wr = wins/total
                 pm = 1.96*((wr*(1-wr))/total)**(1/2)
                 winrate = "[{0:.2f}, {1:.2f}]".format(wr-pm, wr+pm)
+                mean_dur = sum(row['duration'] for row in tmp)
+                total_duration += mean_dur
+                mean_dur /= total
+                dur = "{0:.2f}".format(mean_dur)
+                mean_turns = sum(row['num_turns'] for row in tmp)
+                total_turns += mean_turns
+                mean_turns /= total
+                turns = "{0}".format(int(mean_turns))
+                
             
             self.canvas.create_text(self.column3_x * width, mean_row_y,
                     anchor=tk.W, text = winrate, font=self.font,
             )
-            dur = "N/A"
-            if total > 0:
-                mean_dur = sum(row['duration'] for row in tmp)/total
-                dur = "{0:.2f}".format(mean_dur)
             self.canvas.create_text(self.column4_x * width, mean_row_y,
                     anchor=tk.W, text = dur, font=self.font,
             )
-            turns = "N/A"
-            if total > 0:
-                mean_turns = sum(row['num_turns'] for row in tmp)/total
-                turns = "{0}".format(int(mean_turns))
             self.canvas.create_text(self.column5_x * width, mean_row_y,
                     anchor=tk.W, text = turns, font=self.font,
             )
+        i=10
+        row_top_y = (i)*self.row_height
+        row_bottom_y = (i+1)*self.row_height
+        mean_row_y = (row_top_y + row_bottom_y)/2
+        total_losses = total_n - total_wins
+        color = 'white'
+        if i % 2 == 0:
+            color = 'grey85'
             
+        self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
+                        fill = color, width = 0)
+        
+        
+        #Draw bottom of row
+        id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
+                            fill = self.grid_color, tags=('grid_line_bot',)) # Top
+        self.canvas.tag_raise('grid_line_bot')
+        
+        self.canvas.create_text(self.column1_x * width + 20, mean_row_y,
+                anchor=tk.W, text = "Total", font=self.font
+        )
+        
+        self.canvas.create_text(self.column2_x * width + 20, mean_row_y,
+                anchor=tk.W, text = "{0}/{1}".format(total_wins, total_losses), font=self.font
+        )
+        winrate = 'N/A'
+        turns = "N/A"
+        dur = "N/A"
+        if total_n > 0:
+            wr = total_wins/total_n
+            pm = 1.96*sqrt((wr*(1-wr))/total_n)
+            winrate = "[{0:.2f}, {1:.2f}]".format(wr-pm, wr+pm)
+            mean_dur = total_duration/total_n
+            dur = "{0:.2f}".format(mean_dur)
+            mean_turns = total_turns/total_n
+            turns = "{0}".format(int(mean_turns))
+        
+        self.canvas.create_text(self.column3_x * width, mean_row_y,
+                anchor=tk.W, text = winrate, font=self.font,
+        )
+        self.canvas.create_text(self.column4_x * width, mean_row_y,
+                anchor=tk.W, text = dur, font=self.font,
+        )
+        self.canvas.create_text(self.column5_x * width, mean_row_y,
+                anchor=tk.W, text = turns, font=self.font,
+        )
             
 
 def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
