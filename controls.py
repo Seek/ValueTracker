@@ -166,21 +166,14 @@ class DeckStatsCanvas(ResizeableCanvas):
         self.row_height = 20
         self.font = tk.font.Font(family='Helvetica', size=10, weight = 'bold')
         self.grid_color = "#84aad9"
-        self.win_color = '#4a9e5b'
-        self.lose_color = '#7c23a6'
         self.column1_x = 0
-        self.column2_x = 0.4
-        self.column3_x = 0.6
-        self.column4_x = 0.75
+        self.column2_x = 0.2
+        self.column3_x = 0.4
+        self.column4_x = 0.6
+        self.column5_x = 0.8
         self.class_images = {}
         self.icon_size = 16
-        for i in range(1,10):
-            path = './images/tbl_{0}.png'.format(i)
-            im = PIL.Image.open(path)
-            im = im.resize((self.icon_size,self.icon_size), PIL.Image.LANCZOS)
-            im = PIL.ImageTk.PhotoImage(im)
-            self.class_images[i] = im
-            tk.Label(self, image=im)
+        self.class_images = [ImageTk.PhotoImage(im) for im in CLASS_IMAGES_16]
         
         
     def set_deck(self, deck_id):
@@ -191,83 +184,113 @@ class DeckStatsCanvas(ResizeableCanvas):
         num_rows = 0
         width = self.canvas.winfo_reqwidth()
         height = self.canvas.winfo_reqheight()
-        if self.active_deck is not None:
-            results = self.cursor.execute('SELECT * from match WHERE deck = ?', (self.active_deck,))
-            rows = results.fetchall()
-            self.canvas.delete(tk.ALL)
-            vals = list(hs.hero_dict.keys())
-            for i, v in enumerate(vals):
-                num_rows += 1
-                ids = self.cursor.execute('SELECT id FROM hero WHERE class = ?', (v,)).fetchall()
-                query = 'SELECT * FROM match WHERE deck = ? AND ('
-                for id in ids:
-                     query += 'opp_hero = {0} OR '.format(id['id'])
-                query = query[:-4]
-                query += ')'
-
-                
-                matches = self.cursor.execute(query, (self.active_deck,)).fetchall()
-                total_num = len(matches)
-                total_wins = sum(1 for i in matches if i['won'] == 1)
-                # Calc
-                row_top_y = i*self.row_height
-                row_bottom_y = (i+1)*self.row_height
-                mean_row_y = (row_top_y + row_bottom_y)/2
-                
-                color = 'white'
-                if i % 2 == 0:
-                    color = 'grey85'
-                    
-                self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
-                                fill = color, width = 0)
-                
-                #Draw bottom of row
-                id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
-                                 fill = self.grid_color, tags=('grid_line_bot',)) # Top
-                self.canvas.tag_raise('grid_line_bot')
-                self.canvas.create_image(0, mean_row_y,
-                        anchor=tk.W, image= self.class_images[v]
-                )
-                self.canvas.create_text(20, mean_row_y,
-                        anchor=tk.W, text = hs.hero_dict[v], font=self.font
-                )
-                if total_num == 0:
-                    win_rate = 'NA'
-                else:
-                    win_rate = total_wins/total_num
-                
-                self.canvas.create_text(self.column2_x * width, mean_row_y,
-                        anchor=tk.W, text = 'Win Rate: {0}'.format(win_rate), font=self.font
-                )
-                
-            # Draw the totals row
-            row_top_y = num_rows*self.row_height
-            row_bottom_y = (num_rows+1)*self.row_height
+        data = {}
+        for i in range(1,10):
+            tmp = self.cursor.execute("SELECT id FROM hero WHERE class = ?", (i,)).fetchall()
+            hero_ids = [x['id'] for x in tmp]
+            if self.active_deck is not None:
+                query = "SELECT * FROM match WHERE deck = ? AND ("
+            else:
+                query = "SELECT * FROM match WHERE "
+            for id in hero_ids:
+                query += "opp_hero = {0} OR ".format(id)
+            query = query[:-4]
+            if self.active_deck is not None:
+                query += ")"
+            logging.info("Executing query %s", query)
+            if self.active_deck is not None:
+                tmp = self.cursor.execute(query, (self.active_deck,)).fetchall()
+            else:
+                tmp = self.cursor.execute(query).fetchall()
+            data[i] = tmp
+        width = self.canvas.winfo_reqwidth()
+        height = self.canvas.winfo_reqheight()
+        # Draw the header row
+        mean_row_y = self.row_height/2
+            
+        self.canvas.create_rectangle(0,0, width, self.row_height, 
+                        fill = 'grey75', width = 0)
+        #Draw bottom of row
+        id = self.canvas.create_line(0,self.row_height, width, self.row_height, 
+                            fill = 'grey65', tags=('grid_line_bot',)) # Top
+        self.canvas.tag_raise('grid_line_bot')
+        
+        self.canvas.create_text(self.column1_x * width + 20, mean_row_y,
+                anchor=tk.W, text = "Opponent", font=self.font
+        )
+        
+        self.canvas.create_text(self.column2_x * width + 5, mean_row_y,
+                anchor=tk.W, text = "Wins/Losses", font=self.font
+        )
+        
+        self.canvas.create_text(self.column3_x * width - 10, mean_row_y,
+                anchor=tk.W, text = "Win Rate (95% CI)", font=self.font,
+        )
+        self.canvas.create_text(self.column4_x * width - 10, mean_row_y,
+                anchor=tk.W, text = 'Mean Duration', font=self.font,
+        )
+        self.canvas.create_text(self.column5_x * width, mean_row_y,
+                anchor=tk.W, text = 'Mean # of Turns', font=self.font,
+        )
+            
+        for i in range(1,10):
+            tmp = data[i]
+            wins = sum(1 for row in tmp if row['won'] == 1)
+            total = len(tmp)
+            losses = total - wins
+            # Calc
+            row_top_y = (i)*self.row_height
+            row_bottom_y = (i+1)*self.row_height
             mean_row_y = (row_top_y + row_bottom_y)/2
+            
+            color = 'white'
+            if i % 2 == 0:
+                color = 'grey85'
+                
             self.canvas.create_rectangle(0,row_top_y, width, row_bottom_y, 
-                            fill = 'white', width = 0)
+                            fill = color, width = 0)
+            
             
             #Draw bottom of row
             id = self.canvas.create_line(0,row_bottom_y, width, row_bottom_y, 
                                 fill = self.grid_color, tags=('grid_line_bot',)) # Top
             self.canvas.tag_raise('grid_line_bot')
-            self.canvas.create_text(20, mean_row_y,
-                    anchor=tk.W, text = 'Total', font=self.font
+            self.canvas.create_image(self.column1_x * width, mean_row_y,
+                    anchor=tk.W, image= self.class_images[i]
             )
-            if len(rows) == 0:
-                win_rate = 'NA'
-                self.canvas.create_text(self.column2_x * width, mean_row_y,
-                        anchor=tk.W, text = 'Win Rate: NA', font=self.font
-                )
-            else:
-                win_rate = sum(1 for i in rows if i['won'] == 1)/len(rows)
-                self.canvas.create_text(self.column2_x * width, mean_row_y,
-                        anchor=tk.W, text = 'Win Rate: {:0.3f}'.format(win_rate), font=self.font
-                )
-
-                
-        else:
-            return
+            
+            self.canvas.create_text(self.column1_x * width + 20, mean_row_y,
+                    anchor=tk.W, text = hs.hero_dict[i], font=self.font
+            )
+            
+            self.canvas.create_text(self.column2_x * width + 20, mean_row_y,
+                    anchor=tk.W, text = "{0}/{1}".format(wins, losses), font=self.font
+            )
+            winrate = 'N/A'
+            if total > 0:
+                wr = wins/total
+                pm = 1.96*((wr*(1-wr))/total)**(1/2)
+                winrate = "[{0:.2f}, {1:.2f}]".format(wr-pm, wr+pm)
+            
+            self.canvas.create_text(self.column3_x * width, mean_row_y,
+                    anchor=tk.W, text = winrate, font=self.font,
+            )
+            dur = "N/A"
+            if total > 0:
+                mean_dur = sum(row['duration'] for row in tmp)/total
+                dur = "{0:.2f}".format(mean_dur)
+            self.canvas.create_text(self.column4_x * width, mean_row_y,
+                    anchor=tk.W, text = dur, font=self.font,
+            )
+            turns = "N/A"
+            if total > 0:
+                mean_turns = sum(row['num_turns'] for row in tmp)/total
+                turns = "{0}".format(int(mean_turns))
+            self.canvas.create_text(self.column5_x * width, mean_row_y,
+                    anchor=tk.W, text = turns, font=self.font,
+            )
+            
+            
 
 def render_text(text, font, text_fill=(255,255,255,255), outline_fill=(0,0,0,255)):
     w,h = font.getsize(text)
@@ -983,13 +1006,15 @@ class DeckStatisticsCanvas(ttk.Frame):
         self.editable = False
         
         self.font = tk.font.Font(family='Helvetica', size=10, weight = 'bold')
+        self.underline_font = tk.font.Font(family='Helvetica', size=10, weight = 'bold', underline=True)
         self.grid_color = "#84aad9"
         self.win_color = '#4a9e5b'
         self.lose_color = '#7c23a6'
         self.column1_x = 0
-        self.column2_x = 0.4
-        self.column3_x = 0.6
-        self.column4_x = 0.75
+        self.column2_x = 0.2
+        self.column3_x = 0.4
+        self.column4_x = 0.6
+        self.column5_x = 0.8
         
     def _configure(self, event):
         self.canvas['width'] = event.width
@@ -1040,6 +1065,36 @@ class DeckStatisticsCanvas(ttk.Frame):
         rows = results.fetchmany(100)
         # If we have rows,draw them
         num_rows = 0 #Keep track of row
+        # Draw the header row
+        mean_row_y = self.row_height/2
+            
+        self.canvas.create_rectangle(0,0, width, self.row_height, 
+                        fill = 'grey75', width = 0)
+        
+        
+        #Draw bottom of row
+        id = self.canvas.create_line(0,self.row_height, width, self.row_height, 
+                            fill = 'grey65', tags=('grid_line_bot',)) # Top
+        self.canvas.tag_raise('grid_line_bot')
+        
+        self.canvas.create_text(self.column1_x * width + 20, mean_row_y,
+                anchor=tk.W, text = "Deck", font=self.font
+        )
+        
+        self.canvas.create_text(self.column2_x * width + 5, mean_row_y,
+                anchor=tk.W, text = "Opponent", font=self.font
+        )
+        
+        self.canvas.create_text(self.column3_x * width - 10, mean_row_y,
+                anchor=tk.W, text = "Outcome", font=self.font,
+        )
+        self.canvas.create_text(self.column4_x * width - 10, mean_row_y,
+                anchor=tk.W, text = 'Duration (s)', font=self.font,
+        )
+        self.canvas.create_text(self.column5_x * width, mean_row_y,
+                anchor=tk.W, text = 'Date', font=self.font,
+        )
+        # Draw the rest of the rows
         if rows:
             for i, row in enumerate(rows):
                 num_rows += 1
@@ -1058,10 +1113,10 @@ class DeckStatisticsCanvas(ttk.Frame):
                 
                 date = row['date']
                 won = row['won']
-                
+                duration = row['duration']
                 # Calc
-                row_top_y = i*self.row_height
-                row_bottom_y = (i+1)*self.row_height
+                row_top_y = (i+1)*self.row_height
+                row_bottom_y = (i+2)*self.row_height
                 mean_row_y = (row_top_y + row_bottom_y)/2
                 
                 color = 'white'
@@ -1105,9 +1160,11 @@ class DeckStatisticsCanvas(ttk.Frame):
                         anchor=tk.W, text = out_text, font=self.font,
                         fill = color
                 )
-                
                 self.canvas.create_text(self.column4_x * width, mean_row_y,
-                        anchor=tk.W, text = date[0:19], font=self.font,
+                        anchor=tk.W, text = int(duration), font=self.font,
+                )
+                self.canvas.create_text(self.column5_x * width, mean_row_y,
+                        anchor=tk.W, text = date[0:16], font=self.font,
                 )
                 
         return
