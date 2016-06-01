@@ -14,6 +14,9 @@ import logging
 import os.path
 import copy
 
+import hs
+from controls import DeckSelectWidget, PlayerClassWidget
+
 Card = namedtuple('Card', ['id', 'name','rarity',
                              'cost', 'attack', 'health'])
                              
@@ -57,124 +60,63 @@ def load_deck_from_sql(cursor, id):
         deck[card.id] = [card, int(row['num'])]
     return deck
     
-CLASS_IMAGES = [Image.open('./images/tbl_{0}.png'.format(n)) for n in range(0,10)]
-CLASS_IMAGES_64 = [im.resize((64,64), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
-CLASS_IMAGES_32 = [im.resize((32,32), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
-CLASS_IMAGES_24 = [im.resize((24,24), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
-CLASS_IMAGES_16 = [im.resize((16,16), PIL.Image.LANCZOS) for im in CLASS_IMAGES]
-SEL_HILITE = Image.open('./images/sel_highlight.png')
-SEL_HILITE_32 = SEL_HILITE.resize((32,32), PIL.Image.LANCZOS)
-# NO_CLASS_IMAGE = Image.open('./images/0.png)
-# NO_CLASS_IMAGE_64 = NO_CLASS_IMAGE.resize((64,64), PIL.Image.LANCZOS)
-# NO_CLASS_IMAGE_32 = NO_CLASS_IMAGE.resize((32,32), PIL.Image.LANCZOS)
-# NO_CLASS_IMAGE_24 = NO_CLASS_IMAGE.resize((24,24), PIL.Image.LANCZOS)
-# NO_CLASS_IMAGE_16 = NO_CLASS_IMAGE.resize((16,16), PIL.Image.LANCZOS)
-
-class DeckSelectWidget(ttk.Frame):
-    def __init__(self, master=None, **kwargs):
-        ttk.Frame.__init__(self, master, **kwargs)
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(0, weight=1)
-        yscrollbar = tk.Scrollbar(self)
-        yscrollbar.grid(row=0, column=1, sticky='nse')
-        
-        self.canvas = tk.Canvas(self, width = self['width'], height = self['height'],
-                                bd = 0, highlightthickness=0,
-                                yscrollcommand=yscrollbar.set,
-                                scrollregion=(0, 0, self['width'], 1000))
-        
-        self.canvas.grid(column=0, row=0, sticky='nswe')
-        yscrollbar.config(command=self.canvas.yview)
-        #self.canvas['bg'] = 'black'
-        # Setup 2 rows 
-        self.images = [ImageTk.PhotoImage(im) for im in CLASS_IMAGES_32]
-        self.canvas.bind('<Button-1>', self._canvas_clicked)
-        self.active_deck = None
-        self.hilite = ImageTk.PhotoImage(SEL_HILITE_32)
-        self.on_deck_selected = []
-        
-    def set_deck_list(self, decks):
-        """Decks should be a list opf dict like objects with keys name and player_class an integer"""
-        self.canvas.delete(tk.ALL)
-        i = 0
-        for deck in decks:
-            name = deck['name']
-            pc = deck['class']
-            id = deck['id']
-            self.canvas.create_image(0, i * 32,  image=self.images[pc], tags=(id, pc, 'image_{0}'.format(id),), anchor=tk.NW)
-            self.canvas.create_text(34, ((i  * 32) + (i+1)*32)/2,  text=name, tags=(id, pc,), anchor=tk.W)
-            i += 1
-            
-    def _canvas_clicked(self, event):
-        item = self.canvas.find_closest(event.x, event.y, halo=None, start=None)
-        if item:
-            tags =  self.canvas.gettags(item)
-            if tags:
-                id = tags[0]
-                if id == self.active_deck:
-                    self.active_deck = None
-                    self.canvas.delete(self.canvas.find_withtag('hilite'))
-                    for f in self.on_deck_selected:
-                        f(None)
-                else:
-                    im = self.canvas.find_withtag('image_{0}'.format(id))
-                    x, y = self.canvas.coords(im)
-                    self.canvas.create_image(x,y,  image=self.hilite, tags=(id,'hilite',), anchor=tk.NW)
-                    self.active_deck = id
-                    for f in self.on_deck_selected:
-                        f(id)
-            
-class PlayerClassWidget(ttk.Frame):
-    def __init__(self, master=None, **kwargs):
-        ttk.Frame.__init__(self, master, **kwargs)
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        
-        self['width'] = 32 * 5
-        self['height'] = 32 * 2
-        self.canvas = tk.Canvas(self, width = self['width'], height = self['height'],
-                                bd = 0, highlightthickness=0)
-        self.canvas.grid(column=0, row=0, sticky='nswe')
-        # Setup 2 rows 
-        self.images = [ImageTk.PhotoImage(im) for im in CLASS_IMAGES_32]
-        self.hilite = ImageTk.PhotoImage(SEL_HILITE_32)
-        self.active_playerclass = 0
-        for i in range(0,5):
-            lbl_top = self.canvas.create_image(32* i, 0,  image=self.images[i], tags=(i,), anchor=tk.NW)
-            lbl_top = self.canvas.create_image(32* i, 32,  image=self.images[i+5], tags=(i+5,), anchor=tk.NW)
-        self.canvas.bind('<Button-1>', self._canvas_clicked)
-        
-        self.on_class_selected = []
-        
-    def _canvas_clicked(self, event):
-        item = self.canvas.find_closest(event.x, event.y, halo=None, start=None)
-        if item:
-            tags =  self.canvas.gettags(item)
-            if tags:
-                i = int(tags[0])
-                if self.active_playerclass == i:
-                    self.canvas.delete(self.canvas.find_withtag('hilite'))
-                    self.active_playerclass = 0
-                    for f in self.on_class_selected:
-                        f(0)
-                    return
-                elif i == 0:
-                    self.canvas.delete(self.canvas.find_withtag('hilite'))
-                    self.active_playerclass = 0
-                    for f in self.on_class_selected:
-                        f(0)
-                else:
-                    self.canvas.delete(self.canvas.find_withtag('hilite'))
-                    self.active_playerclass = i
-                    if i < 5:
-                        self.canvas.create_image(32* i, 0,  image=self.hilite, tags=(i, 'hilite', ), anchor=tk.NW)
-                    else:
-                        self.canvas.create_image(32* (i-5), 32,  image=self.hilite, tags=(i, 'hilite', ), anchor=tk.NW)
-                    for f in self.on_class_selected:
-                        f(i)
-            
     
+class CardStatsWidget(ttk.Frame):
+    def __init__(self, cursor, master=None, **kwargs):
+        # Initialize
+        ttk.Frame.__init__(self, master, **kwargs)
+        self.cursor = cursor
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=2)
+        self.canvas = tk.Canvas(self, width=self['width'],
+                        height = 525, bd = 0,
+                        highlightthickness=0, bg='white')
+        self.entry = hs.AutocompleteCardEntry(self, cursor, )
+        self.entry.grid(column = 0, row=0, sticky='nw')
+        self.canvas.grid(column=0, row=1, sticky='nsew')
+        self.entry.cb.append(self.on_card_selected)
+        self.active_deck = None
+        
+    def draw_results(self, card_id):
+        self.canvas.delete(tk.ALL)
+        cards_played = self.cursor.execute("SELECT DISTINCT matchid FROM card_played WHERE cardid LIKE ?",
+                                ('%{0}%'.format(card_id),)).fetchall()
+        wins = 0
+        losses = 0
+        turn = 0
+        time = 0
+        #pdb.set_trace()
+        if cards_played:
+            for row in cards_played:
+                match = self.cursor.execute("SELECT DISTINCT * from match WHERE id = ?",
+                                                (int(row['matchid']),)).fetchone()
+                if match['won'] == 1:
+                    wins += 1
+                else:
+                    losses +=1
+                turn += int(match['num_turns'])
+                time += int(match['duration'])
+            
+            name = self.cursor.execute("SELECT name FROM cards WHERE id LIKE ?",
+                                    ('%{0}%'.format(card_id),)).fetchone()['name']
+            total = wins+losses
+            self.canvas.create_text(0,20, text= 'Card: {0}'.format(name), anchor='w')
+            self.canvas.create_text(0,40, text= 'Total Games: {0}'.format(wins + losses), anchor='w')
+            self.canvas.create_text(0,60, text= 'Total Wins: {0}'.format(wins), anchor='w')
+            self.canvas.create_text(0,80, text= 'Mean Turns Played Per Game: {0}'.format(turn/total), anchor='w')
+            self.canvas.create_text(0,100, text= 'Mean Duration: {0}'.format(time/total), anchor='w')
+            self.canvas.create_text(0,120, text= 'Win Rate: {0}'.format(wins/total), anchor='w')
+        
+    def on_card_selected(self, name):
+        results = self.cursor.execute("SELECT id, name from cards WHERE name LIKE ?", 
+                                        ("%{0}%".format(name),)).fetchall()
+        #pdb.set_trace()
+        for row in results:
+            if row['name'] == name:
+                self.draw_results(row['id'])
+        
+        
 class Application(ttk.Frame):
     def __init__(self, master=None, **kwargs):
         # Initialize
@@ -199,7 +141,7 @@ class Application(ttk.Frame):
                             height=self['height'])
         
         self.nb = ttk.Notebook(self.pw, width=int(self['width']*0.7), height=self['height'])
-        f = ttk.Frame(self.nb,width=int(self['width']*0.7), height=self['height'])
+        f = CardStatsWidget(self.cursor, self.nb, width=int(self['width']*0.7), height=self['height'])
         
         deck_filter_lblframe = ttk.LabelFrame(deck_win_frame, text='Deck Filter', width = 200, height = 74, pad=4)
         deck_select_lblframe = ttk.LabelFrame(deck_win_frame, text='Decks', width = 200, height = 390, pad=4)
@@ -218,7 +160,6 @@ class Application(ttk.Frame):
         
         self.deck_select_widget.grid(row=0, column=0, sticky='nwse')
         deck_filter_lblframe.grid(row=4, column=0, sticky='nwe')
-        f.grid(column=0, row=0, sticky='nsew')
         # Config notebook
         self.nb.columnconfigure(0, weight=1)
         self.nb.rowconfigure(0, weight=1)
