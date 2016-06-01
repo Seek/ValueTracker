@@ -1,78 +1,32 @@
-
-# coding: utf-8
-
-# In[2]:
-
 import json, requests
+from controls import Card, card_from_row
+def deck_from_tempostorm(url, cursor):
+    deck_str = url[url.rfind('/')+1:]
+    tempo_storm_url = 'https://tempostorm.com/api/decks/findOne?filter='
+    tempo_storm_req = {'fields': {},
+    'include': [{'relation': 'cards', 'scope': {'include': 'card'}}],
+    'where': {'slug': 'midrange-shaman-standard-meta-snapshot-may-29-2016'}}
+    tempo_storm_req['where']['slug'] = deck_str
+    resp = requests.get(url=tempo_storm_url+json.dumps(tempo_storm_req))
+    data = json.loads(resp.text)
+    if 'heroName' not in data:
+        return
+    hero = data['heroName']
+    deck_name = data['name']
+    cards = [(card['card']['name'], card['cardQuantity']) for card in data['cards']]
+    deck = {}
+    for i, card in enumerate(cards):
+        row = cursor.execute('SELECT * FROM cards WHERE name LIKE ?', 
+                            ('%{0}%'.format(card[0]),)).fetchone()
+        deck[row['id']] = [card_from_row(row), card[1]]
+    hero_id = cursor.execute('SELECT class FROM hero WHERE name LIKE ?',
+                         ('%{0}%'.format(hero),)).fetchone()['class']
+    return (hero_id, deck_name, deck)
+        
 
-url = 'https://tempostorm.com/api/decks/findOne?filter='
-
-params = dict(
-    where = dict(
-        slug = "midrange-shaman-standard-meta-snapshot-may-29-2016",
-        fields = {},
-        include = []
-    )
-)
-
-
-# In[3]:
-
-params
-
-
-# In[33]:
-
-request = json.loads("""{"where":{"slug":"midrange-shaman-standard-meta-snapshot-may-29-2016"},"fields":["id","createdDate","name","description","playerClass","premium","dust","heroName","authorId","deckType","isPublic","chapters","youtubeId","gameModeType","isActive","isCommentable"],"include":[{"relation":"cards","scope":{"include":"card","scope":{"fields":["id","name","cardType","cost","dust","photoNames"]}}},{"relation":"comments","scope":{"fields":["id","votes","authorId","createdDate","text"],"include":{"relation":"author","scope":{"fields":["id","username","gravatarUrl"]}}}},{"relation":"author","scope":{"fields":["id","username"]}},{"relation":"matchups","scope":{"fields":["forChance","deckName","className"]}},{"relation":"votes","fields":["id","direction","authorId"]}]}""")
-
-
-# In[34]:
-
-request
-
-
-# In[35]:
-
-request['fields'] = {}
-
-
-# In[39]:
-
-request['include']
-
-
-# In[38]:
-
-request['include'] = [request['include'][0],]
-
-
-# In[40]:
-
-del request['include'][0]['scope']['scope']
-
-
-# In[41]:
-
-request
-
-
-# In[44]:
-
-json.dumps(request)
-
-
-# In[46]:
-
-resp = requests.get(url=url+json.dumps(request))
-data = json.loads(resp.text)
-
-
-# In[52]:
-
-data['cards']
-
-
-# In[ ]:
-
-
-
+if __name__ == '__main__':
+    import pdb, sqlite3
+    db = sqlite3.connect('example_stats.db')
+    db.row_factory = sqlite3.Row
+    cursor = db.cursor()
+    hero, deck_name, deck = deck_from_tempostorm("", cursor)

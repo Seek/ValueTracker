@@ -5,6 +5,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import scrolledtext
 from tkinter import font
+from tkinter import simpledialog
 # Functional imports
 import ssl
 import urllib.request
@@ -27,6 +28,7 @@ import re
 from controls import *
 import db_ops
 import os
+import importing
 
 CONFIG_FILE = 'config.json'
 
@@ -66,9 +68,9 @@ class Application(ttk.Frame):
 
     def load_settings(self):
         # Restore the old window
-        if 'main_window_geom' in self.app_config:
-            last_geom = self.app_config["main_window_geom"]
-            self.master.geometry(last_geom)
+        # if 'main_window_geom' in self.app_config:
+        #     last_geom = self.app_config["main_window_geom"]
+        #     self.master.geometry(last_geom)
         if 'local_deck_geom' in self.app_config:
             last_geom = self.app_config["local_deck_geom"]
             self._deck_tracker.win.geometry(last_geom)
@@ -112,8 +114,6 @@ class Application(ttk.Frame):
                             height=self['height'])
         
         self._notebook = ttk.Notebook(self.pw, width=int(self['width']*0.7), height=self['height'])
-        f = ttk.Frame(self._notebook ,width=int(self['width']*0.7), height=self['height'])
-        
         deck_filter_lblframe = ttk.LabelFrame(deck_win_frame, text='Deck Filter', width = 200, height = 74, pad=4)
         deck_select_lblframe = ttk.LabelFrame(deck_win_frame, text='Decks', width = 200, height = 390, pad=4)
         
@@ -121,7 +121,7 @@ class Application(ttk.Frame):
         deck_select_lblframe.grid(row=5, column=0, sticky='nwse')
         self.deck_filter_widget = PlayerClassWidget(deck_filter_lblframe, width= 5*32, height = 64)
         self.deck_filter_widget.on_class_selected.append(self.on_deck_filter)
-        ttk.Button(deck_win_frame, text='Import Deck').grid(column=0, row=0, sticky='ew')
+        ttk.Button(deck_win_frame, text='Import Deck', command=self.on_import_deck).grid(column=0, row=0, sticky='ew')
         ttk.Button(deck_win_frame, text='New Deck', command=self._deck_new).grid(column=0, row=1, sticky='ew')
         ttk.Button(deck_win_frame, text='Edit Deck', command=self._deck_edit).grid(column=0, row=2, sticky='ew')
         ttk.Button(deck_win_frame, text='Delete Deck', command=self._deck_del).grid(column=0, row=3, sticky='ew')
@@ -132,7 +132,6 @@ class Application(ttk.Frame):
         
         self.deck_select_widget.grid(row=0, column=0, sticky='nwse')
         deck_filter_lblframe.grid(row=4, column=0, sticky='nwe')
-        f.grid(column=0, row=0, sticky='nsew')
         # Config notebook
         self._notebook .columnconfigure(0, weight=1)
         self._notebook .rowconfigure(0, weight=1)
@@ -150,7 +149,6 @@ class Application(ttk.Frame):
         deck_select_lblframe.columnconfigure(0, weight=1)
         decks = self.cursor.execute("SELECT id,name, class FROM deck").fetchall()
         self.deck_select_widget.set_deck_list(decks)
-        self._notebook.add(f, text='Test')
         
         self._deck_frame = ttk.Frame(self._notebook)
         self._stats_frame = ttk.Frame(self._notebook)
@@ -438,6 +436,8 @@ class Application(ttk.Frame):
 
     def _deck_new(self):
         win = tk.Toplevel(takefocus=True)
+        win.grid_rowconfigure(0, weight=1)
+        win.grid_columnconfigure(0, weight=1)
         dc = DeckCreator(self.cursor, master=win)
         self.wait_window(win)
         self.db.commit()
@@ -556,10 +556,28 @@ class Application(ttk.Frame):
             self._deck_history.set_deck(None)
             self._deck_stats.set_deck(None)
             self._deck_treeview.set_deck({})
-
+            
+    def on_import_deck(self):
+        url = tk.simpledialog.askstring('Import a deck', 'Insert a URL from tempostorm.com to import a deck')
+        if url != "":
+            hero, deck_name, deck = importing.deck_from_tempostorm(url, self.cursor)
+            win = tk.Toplevel(takefocus=True)
+            win.grid_rowconfigure(0, weight=1)
+            win.grid_columnconfigure(0, weight=1)
+            dc = DeckCreator(self.cursor, master=win)
+            dc._static_canvas.set_deck(deck)
+            dc._hero_class_list.set_label(hero)
+            dc._deck_name_entry.insert(tk.END, deck_name)
+            dc.update_num_cards()
+            self.wait_window(win)
+            self.db.commit()
+            # Refresh deck list
+            self._refresh_deck_list()
+            
+            
 root = tk.Tk()
 root.withdraw()
 root.title('ValueTracker')
 root.option_add('*tearOff', False)
-app = Application(master=root, width=800, height=600)
+app = Application(master=root)
 app.mainloop()

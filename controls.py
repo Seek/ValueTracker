@@ -902,16 +902,16 @@ class DeckCreator(ttk.Frame):
         
     def _btn_save(self):
         if len(self._static_canvas.static_deck) > 30:
-            print('Too many cards')
+            tk.messagebox.showwarning('A deck cannot contain more than 30 cards', 'Remove some cards and try again')
             return
         elif len(self._static_canvas.static_deck) < 1:
-            print('Too few cards')
+            tk.messagebox.showwarning('A deck must contain atleast one card', 'Add a card and try again')
             return
         elif self._deck_name_entry.get() == '' and self.update_deck is False:
-            print('No name given')
+            tk.messagebox.showwarning('Deck has no name', 'The deck does not have a name, give it one and try again')
             return
         elif self._hero_class_list.active_class is None and self.update_deck is False:
-            print('No class selected')
+            tk.messagebox.showwarning('Deck has unassociate class', 'A deck must be associate with a hero, select a hero and try again')
             return
         elif self.update_deck is True:
             table_name = 'deck_' + str(self.deck_id)
@@ -923,7 +923,7 @@ class DeckCreator(ttk.Frame):
             deck = self.cursor.execute(sql_select_deck_by_name, 
                         ('%' + self._deck_name_entry.get() +'%',)).fetchone()
             if deck is not None:
-                print('Deck with that name already exists')
+                tk.messagebox.showwarning('A deck with that name exists', 'Decks must have unique names, please change the name and try again')
                 return
             else:
                 self.cursor.execute(sql_insert_deck, (self._deck_name_entry.get(),heronum))
