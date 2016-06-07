@@ -3,8 +3,8 @@
     "deck_bar_font_size": 16,
     "foreign_deck_geom": "230x472+4+145",
     "interface_font": "/fonts/FiraSans-Regular.otf",
-    "local_deck_geom": "245x682+1669+18",
-    "main_window_geom": "1061x608+130+130",
-    "path_to_db": "example_stats.db",
+    "local_deck_geom": "245x682+1669+-2",
+    "main_window_geom": "1061x608+2077+139",
+    "path_to_db": "C:/Users/seekn/Desktop/ValueTracker/stats.db",
     "path_to_hs_logs": "C:/Program Files (x86)/Hearthstone/Logs"
 }
